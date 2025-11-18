@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Painel de Localização - Alunos Ellus</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <h1>Painel de Localização dos Alunos</h1>
+      <p class="subtitle">Acompanhamento em tempo real</p>
+    </header>
+
+    <!-- Filtros -->
+    <div class="filters">
+      <div class="filter-group">
+        <label for="filtroViagem">Filtrar por Viagem:</label>
+        <select id="filtroViagem" class="select-viagem">
+          <option value="">Todas as viagens</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <button id="btnAtualizar" class="btn-atualizar">
+          🔄 Atualizar
+        </button>
+      </div>
+
+      <div class="filter-group">
+        <span id="ultimaAtualizacao" class="ultima-atualizacao">
+          Última atualização: --
+        </span>
+      </div>
+    </div>
+
+    <!-- Estatísticas -->
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-number" id="totalAlunos">0</div>
+        <div class="stat-label">Total de Alunos</div>
+      </div>
+      <div class="stat-card quarto">
+        <div class="stat-number" id="totalQuarto">0</div>
+        <div class="stat-label">No Quarto</div>
+      </div>
+      <div class="stat-card fora">
+        <div class="stat-number" id="totalFora">0</div>
+        <div class="stat-label">Fora do Quarto</div>
+      </div>
+      <div class="stat-card balada">
+        <div class="stat-number" id="totalBalada">0</div>
+        <div class="stat-label">Na Balada</div>
+      </div>
+    </div>
+
+    <!-- Painel de Cards -->
+    <div class="panels">
+      <!-- NO QUARTO -->
+      <div class="panel panel-quarto">
+        <div class="panel-header">
+          <h2>🛏️ NO QUARTO</h2>
+          <span class="panel-count" id="countQuarto">0</span>
+        </div>
+        <div class="panel-content" id="listaQuarto">
+          <p class="empty-message">Nenhum aluno no quarto</p>
+        </div>
+      </div>
+
+      <!-- FORA DO QUARTO -->
+      <div class="panel panel-fora">
+        <div class="panel-header">
+          <h2>🚶 FORA DO QUARTO</h2>
+          <span class="panel-count" id="countFora">0</span>
+        </div>
+        <div class="panel-content" id="listaFora">
+          <p class="empty-message">Nenhum aluno fora do quarto</p>
+        </div>
+      </div>
+
+      <!-- NA BALADA -->
+      <div class="panel panel-balada">
+        <div class="panel-header">
+          <h2>🎉 NA BALADA</h2>
+          <span class="panel-count" id="countBalada">0</span>
+        </div>
+        <div class="panel-content" id="listaBalada">
+          <p class="empty-message">Nenhum aluno na balada</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+      <div class="spinner"></div>
+      <p>Carregando dados...</p>
+    </div>
+
+    <!-- Error Message -->
+    <div id="errorMessage" class="error-message" style="display: none;">
+      <p id="errorText"></p>
+      <button onclick="fecharErro()">Fechar</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
