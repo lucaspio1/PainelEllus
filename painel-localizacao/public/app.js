@@ -246,57 +246,7 @@ function criarCardAluno(pessoa) {
   nome.className = 'aluno-nome';
   nome.textContent = pessoa.nome || 'Nome não informado';
 
-  const info = document.createElement('div');
-  info.className = 'aluno-info';
-
-  // CPF
-  if (pessoa.cpf) {
-    const cpfItem = document.createElement('div');
-    cpfItem.className = 'aluno-info-item';
-    cpfItem.innerHTML = `
-      <span class="aluno-info-label">CPF:</span>
-      <span>${formatarCPF(pessoa.cpf)}</span>
-    `;
-    info.appendChild(cpfItem);
-  }
-
-  // Telefone
-  if (pessoa.telefone) {
-    const telefoneItem = document.createElement('div');
-    telefoneItem.className = 'aluno-info-item';
-    telefoneItem.innerHTML = `
-      <span class="aluno-info-label">Telefone:</span>
-      <span>${pessoa.telefone}</span>
-    `;
-    info.appendChild(telefoneItem);
-  }
-
-  // Turma
-  if (pessoa.turma) {
-    const turmaItem = document.createElement('div');
-    turmaItem.className = 'aluno-info-item';
-    turmaItem.innerHTML = `
-      <span class="aluno-info-label">Turma:</span>
-      <span>${pessoa.turma}</span>
-    `;
-    info.appendChild(turmaItem);
-  }
-
-  // Viagem
-  if (pessoa.inicio_viagem && pessoa.fim_viagem) {
-    const viagemItem = document.createElement('div');
-    viagemItem.className = 'aluno-info-item';
-    const inicioFormatado = formatarData(pessoa.inicio_viagem);
-    const fimFormatado = formatarData(pessoa.fim_viagem);
-    viagemItem.innerHTML = `
-      <span class="aluno-info-label">Viagem:</span>
-      <span>${inicioFormatado} até ${fimFormatado}</span>
-    `;
-    info.appendChild(viagemItem);
-  }
-
   card.appendChild(nome);
-  card.appendChild(info);
 
   return card;
 }
