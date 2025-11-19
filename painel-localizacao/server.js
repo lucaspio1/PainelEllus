@@ -12,7 +12,7 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // URL do Google Apps Script (CONFIGURAR AQUI!)
-const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL || 'SUA_URL_DO_GOOGLE_APPS_SCRIPT_AQUI';
+const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL || 'https://script.google.com/macros/s/AKfycbyQKez698YWjpgswCTj_o0hIDJDYoqT-MfI-4KsBYASaQXNxsPeIa2ZjW5LXT4Lto55gA/exec';
 
 /**
  * Endpoint para buscar todas as pessoas
