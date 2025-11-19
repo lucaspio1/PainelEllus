@@ -113,7 +113,10 @@ function atualizarFiltroViagens(viagens) {
   viagens.forEach(viagem => {
     const option = document.createElement('option');
     option.value = `${viagem.inicio_viagem}|${viagem.fim_viagem}`;
-    option.textContent = viagem.label;
+    // Formatar as datas para português
+    const inicioFormatado = formatarData(viagem.inicio_viagem);
+    const fimFormatado = formatarData(viagem.fim_viagem);
+    option.textContent = `${inicioFormatado} até ${fimFormatado}`;
     select.appendChild(option);
   });
 
@@ -283,9 +286,11 @@ function criarCardAluno(pessoa) {
   if (pessoa.inicio_viagem && pessoa.fim_viagem) {
     const viagemItem = document.createElement('div');
     viagemItem.className = 'aluno-info-item';
+    const inicioFormatado = formatarData(pessoa.inicio_viagem);
+    const fimFormatado = formatarData(pessoa.fim_viagem);
     viagemItem.innerHTML = `
       <span class="aluno-info-label">Viagem:</span>
-      <span>${pessoa.inicio_viagem} até ${pessoa.fim_viagem}</span>
+      <span>${inicioFormatado} até ${fimFormatado}</span>
     `;
     info.appendChild(viagemItem);
   }
@@ -294,6 +299,33 @@ function criarCardAluno(pessoa) {
   card.appendChild(info);
 
   return card;
+}
+
+/**
+ * Formatar data ISO para formato brasileiro
+ */
+function formatarData(dataISO) {
+  if (!dataISO) return '';
+
+  try {
+    // Tenta criar objeto Date a partir da string ISO
+    const data = new Date(dataISO);
+
+    // Verifica se a data é válida
+    if (isNaN(data.getTime())) {
+      return dataISO; // Retorna original se não conseguir converter
+    }
+
+    // Formata para dd/mm/aaaa em português
+    return data.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+  } catch (error) {
+    console.error('Erro ao formatar data:', error);
+    return dataISO;
+  }
 }
 
 /**
