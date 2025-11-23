@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - Painel Ellus</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, var(--bg-color) 0%, #e0e0e0 100%);
+    }
+    .login-card {
+      background: white;
+      padding: 40px;
+      border-radius: 15px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 400px;
+      text-align: center;
+      border-top: 5px solid var(--brand-dark-green);
+    }
+    .login-logo {
+      width: 120px;
+      margin-bottom: 20px;
+    }
+    .login-title {
+      color: var(--brand-dark-green);
+      margin-bottom: 30px;
+      font-size: 1.5rem;
+    }
+    .input-group {
+      margin-bottom: 20px;
+      text-align: left;
+    }
+    .input-group label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--text-light);
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    .input-wrapper {
+      position: relative;
+    }
+    .input-wrapper i {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-light);
+    }
+    .form-input {
+      width: 100%;
+      padding: 12px 12px 12px 40px; /* Espaço para o ícone */
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 1rem;
+      transition: border-color 0.3s;
+    }
+    .form-input:focus {
+      border-color: var(--brand-light-green);
+      outline: none;
+    }
+    .btn-login {
+      width: 100%;
+      padding: 12px;
+      background: var(--brand-dark-green);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.3s;
+      margin-top: 10px;
+    }
+    .btn-login:hover {
+      background: #4a6132;
+    }
+    .error-msg {
+      color: var(--text-red);
+      margin-top: 15px;
+      font-size: 0.9rem;
+      display: none;
+    }
+    .loader {
+      display: none;
+      margin: 10px auto;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid var(--brand-dark-green);
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <div class="login-card">
+    <img src="icon.png" alt="Ellus Turismo" class="login-logo">
+    <h2 class="login-title">Acesso Restrito</h2>
+    
+    <form id="loginForm">
+      <div class="input-group">
+        <label for="cpf">CPF</label>
+        <div class="input-wrapper">
+          <i class="fas fa-user"></i>
+          <input type="text" id="cpf" class="form-input" placeholder="000.000.000-00" required>
+        </div>
+      </div>
+      
+      <div class="input-group">
+        <label for="senha">Senha</label>
+        <div class="input-wrapper">
+          <i class="fas fa-lock"></i>
+          <input type="password" id="senha" class="form-input" placeholder="Sua senha" required>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-login">
+        <span id="btnText">ENTRAR</span>
+        <div id="loader" class="loader"></div>
+      </button>
+      
+      <p id="errorMsg" class="error-msg">Credenciais inválidas ou sem permissão.</p>
+    </form>
+  </div>
+
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const cpf = document.getElementById('cpf').value.replace(/\D/g, ''); // Apenas números
+      const senha = document.getElementById('senha').value;
+      const btnText = document.getElementById('btnText');
+      const loader = document.getElementById('loader');
+      const errorMsg = document.getElementById('errorMsg');
+
+      // UI Loading
+      btnText.style.display = 'none';
+      loader.style.display = 'block';
+      errorMsg.style.display = 'none';
+
+      try {
+        const response = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cpf, senha })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          const user = data.data?.user; // Estrutura do retorno do script: { user: { ... } }
+          
+          // Verifica permissão ADMIN
+          if (user && user.perfil === 'ADMIN') {
+            // Salva sessão
+            localStorage.setItem('painel_user', JSON.stringify(user));
+            localStorage.setItem('operadorEllus', user.nome); // Atualiza nome do operador automaticamente
+            
+            window.location.href = '/'; // Redireciona para o painel
+          } else {
+            throw new Error('Acesso permitido apenas para administradores.');
+          }
+        } else {
+          throw new Error(data.message || 'CPF ou senha incorretos');
+        }
+      } catch (error) {
+        errorMsg.textContent = error.message;
+        errorMsg.style.display = 'block';
+      } finally {
+        btnText.style.display = 'block';
+        loader.style.display = 'none';
+      }
+    });
+
+    // Formata CPF enquanto digita
+    document.getElementById('cpf').addEventListener('input', (e) => {
+      let v = e.target.value.replace(/\D/g, '');
+      if (v.length > 11) v = v.slice(0, 11);
+      if (v.length > 9) v = v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+      else if (v.length > 6) v = v.replace(/(\d{3})(\d{3})(\d{3})/, '$1.$2.$3');
+      else if (v.length > 3) v = v.replace(/(\d{3})(\d{3})/, '$1.$2');
+      e.target.value = v;
+    });
+  </script>
+</body>
+</html>

@@ -1,247 +1,191 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const path = require('path');
+const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// URL do Google Apps Script (CONFIGURAR AQUI!)
-const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL || 'https://script.google.com/macros/s/AKfycbyQKez698YWjpgswCTj_o0hIDJDYoqT-MfI-4KsBYASaQXNxsPeIa2ZjW5LXT4Lto55gA/exec';
+const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
-/**
- * Endpoint para buscar todas as pessoas
- * Faz uma chamada ao Google Apps Script
- */
-app.get('/api/pessoas', async (req, res) => {
-  try {
-    console.log('📥 Buscando pessoas do Google Sheets...');
+if (!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL.includes('SEU_DEPLOYMENT_ID')) {
+  console.error('❌ ERRO CRÍTICO: Configure a URL do Google Script no arquivo .env');
+}
 
-    // Chamar o Google Apps Script
-    const response = await axios.get(`${GOOGLE_SCRIPT_URL}?action=getAllPeople`, {
-      timeout: 30000 // 30 segundos de timeout
-    });
-
-    console.log('✅ Resposta recebida do Google Sheets');
-
-    if (response.data && response.data.success) {
-      const pessoas = response.data.data || [];
-      console.log(`📊 Total de pessoas: ${pessoas.length}`);
-
-      res.json({
-        success: true,
-        data: pessoas,
-        timestamp: new Date().toISOString()
-      });
-    } else {
-      console.error('❌ Resposta com erro do Google Sheets:', response.data);
-      res.status(500).json({
-        success: false,
-        message: response.data?.message || 'Erro ao buscar dados'
-      });
+function getLocalIpAddress() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
     }
-  } catch (error) {
-    console.error('❌ Erro ao buscar pessoas:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Erro ao conectar com Google Sheets: ' + error.message
-    });
   }
-});
+  return 'localhost';
+}
 
-/**
- * Endpoint para buscar viagens únicas
- * Extrai as combinações únicas de INICIO_VIAGEM + FIM_VIAGEM
- */
-app.get('/api/viagens', async (req, res) => {
+function formatarDataPTBR(dataISO) {
+  if (!dataISO) return '';
   try {
-    console.log('📥 Buscando viagens disponíveis...');
+    const data = new Date(dataISO);
+    if (isNaN(data.getTime())) return dataISO;
+    const dia = String(data.getUTCDate()).padStart(2, '0');
+    const mes = String(data.getUTCMonth() + 1).padStart(2, '0');
+    const ano = data.getUTCFullYear();
+    return `${dia}/${mes}/${ano}`;
+  } catch (e) { return dataISO; }
+}
 
-    // Chamar o Google Apps Script
-    const response = await axios.get(`${GOOGLE_SCRIPT_URL}?action=getAllPeople`, {
+// --- ENDPOINTS ---
+
+// ✅ Endpoint de Login (NOVO)
+app.post('/api/login', async (req, res) => {
+  try {
+    const { cpf, senha } = req.body;
+    
+    // Repassa para o Google Apps Script que já tem a função 'login'
+    const response = await axios.post(GOOGLE_SCRIPT_URL, {
+      action: 'login',
+      cpf: cpf,
+      senha: senha
+    }, {
+      headers: { 'Content-Type': 'application/json' },
       timeout: 30000
     });
 
     if (response.data && response.data.success) {
+      res.json({ success: true, data: response.data }); // Retorna dados do usuário
+    } else {
+      res.status(401).json({ success: false, message: response.data?.message || 'Falha no login' });
+    }
+  } catch (error) {
+    console.error('Erro no login:', error.message);
+    res.status(500).json({ success: false, message: 'Erro no servidor: ' + error.message });
+  }
+});
+
+app.get('/api/pessoas', async (req, res) => {
+  try {
+    const response = await axios.get(`${GOOGLE_SCRIPT_URL}?action=getAllPeople`, { timeout: 30000 });
+    if (response.data && response.data.success) {
+      res.json({ success: true, data: response.data.data || [] });
+    } else {
+      res.status(500).json({ success: false, message: response.data?.message });
+    }
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+app.get('/api/quartos', async (req, res) => {
+  try {
+    const response = await axios.post(GOOGLE_SCRIPT_URL, {
+      action: 'getQuartos'
+    }, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 30000
+    });
+
+    if (response.data && response.data.success) {
+      res.json({ success: true, data: response.data.data || [] });
+    } else {
+      res.json({ success: true, data: [] });
+    }
+  } catch (error) { 
+    console.error('Erro ao buscar quartos:', error.message);
+    res.status(500).json({ success: false, message: error.message }); 
+  }
+});
+
+app.get('/api/viagens', async (req, res) => {
+  try {
+    const response = await axios.get(`${GOOGLE_SCRIPT_URL}?action=getAllPeople`, { timeout: 30000 });
+    if (response.data && response.data.success) {
       const pessoas = response.data.data || [];
-
-      // Extrair viagens únicas
       const viagensMap = new Map();
-
-      pessoas.forEach(pessoa => {
-        if (pessoa.inicio_viagem && pessoa.fim_viagem) {
-          const chave = `${pessoa.inicio_viagem}|${pessoa.fim_viagem}`;
-          if (!viagensMap.has(chave)) {
-            viagensMap.set(chave, {
-              inicio_viagem: pessoa.inicio_viagem,
-              fim_viagem: pessoa.fim_viagem,
-              label: `${pessoa.inicio_viagem} até ${pessoa.fim_viagem}`
+      pessoas.forEach(p => {
+        if (p.inicio_viagem && p.fim_viagem) {
+          const k = `${p.inicio_viagem}|${p.fim_viagem}`;
+          if (!viagensMap.has(k)) {
+            viagensMap.set(k, { 
+              inicio_viagem: p.inicio_viagem, 
+              fim_viagem: p.fim_viagem, 
+              label: `${formatarDataPTBR(p.inicio_viagem)} até ${formatarDataPTBR(p.fim_viagem)}` 
             });
           }
         }
       });
-
-      const viagens = Array.from(viagensMap.values());
-      console.log(`✅ ${viagens.length} viagem(ns) encontrada(s)`);
-
-      res.json({
-        success: true,
-        data: viagens
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: 'Erro ao buscar viagens'
-      });
-    }
-  } catch (error) {
-    console.error('❌ Erro ao buscar viagens:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Erro ao buscar viagens: ' + error.message
-    });
-  }
+      res.json({ success: true, data: Array.from(viagensMap.values()) });
+    } else { res.status(500).json({ success: false, message: 'Erro ao buscar viagens' }); }
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
-/**
- * Endpoint para movimentar aluno entre locais
- */
 app.post('/api/movimentar', async (req, res) => {
   try {
-    const { cpf, novaLocalizacao, nome, colegio, turma, inicioViagem, fimViagem } = req.body;
+    const { cpf, novaLocalizacao, nome, colegio, turma, inicioViagem, fimViagem, quarto, operador } = req.body;
+    if (!cpf || !novaLocalizacao) return res.status(400).json({ success: false, message: 'Dados incompletos' });
 
-    if (!cpf || !novaLocalizacao) {
-      return res.status(400).json({
-        success: false,
-        message: 'CPF e nova localização são obrigatórios'
-      });
-    }
+    const operadorFinal = operador || 'Painel Web';
+    console.log(`📍 Movimentando ${nome} -> ${novaLocalizacao} [Op: ${operadorFinal}]`);
 
-    console.log(`📍 Movimentando ${nome || cpf} para ${novaLocalizacao}...`);
-    console.log(`📅 Viagem: ${inicioViagem} até ${fimViagem}`);
-
-    // Registrar log de movimentação no Google Sheets
-    const logResponse = await axios.post(GOOGLE_SCRIPT_URL, {
+    await axios.post(GOOGLE_SCRIPT_URL, {
       action: 'addMovementLog',
       people: [{
-        cpf: cpf,
+        cpf, 
         personName: nome || 'Desconhecido',
         colegio: colegio || '',
         turma: turma || '',
+        quarto: quarto || '',
         tipo: novaLocalizacao,
         movimentacao: novaLocalizacao,
         timestamp: new Date().toISOString(),
         confidence: 100,
-        operadorNome: 'Painel Web',
+        operador: operadorFinal,
+        operadorNome: operadorFinal,
+        monitor: operadorFinal,
         inicio_viagem: inicioViagem || '',
-        inicioViagem: inicioViagem || '',
         fim_viagem: fimViagem || '',
-        fimViagem: fimViagem || '',
         updated_at: new Date().toISOString()
       }]
-    }, {
-      timeout: 30000,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
 
-    console.log('✅ Movimentação registrada:', logResponse.data);
-
-    res.json({
-      success: true,
-      message: `${nome || 'Aluno'} movido para ${novaLocalizacao}`,
-      data: {
-        cpf,
-        novaLocalizacao,
-        inicioViagem,
-        fimViagem,
-        timestamp: new Date().toISOString()
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Erro ao movimentar aluno:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Erro ao movimentar aluno: ' + error.message
-    });
-  }
+    res.json({ success: true, message: 'Movimentação registrada' });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
-/**
- * Endpoint para buscar logs de movimentação
- */
 app.get('/api/logs', async (req, res) => {
   try {
     const { cpf, since } = req.query;
-    console.log('📥 Buscando logs de movimentação...');
-
     let url = `${GOOGLE_SCRIPT_URL}?action=getAllLogs`;
-    if (since) {
-      url += `&since=${encodeURIComponent(since)}`;
-    }
-
+    if (since) url += `&since=${encodeURIComponent(since)}`;
     const response = await axios.get(url, { timeout: 30000 });
 
     if (response.data && response.data.success) {
       let logs = response.data.data || [];
-
-      // Filtrar por CPF se fornecido
       if (cpf) {
-        logs = logs.filter(log => log.cpf === cpf);
+        const cpfBusca = String(cpf).replace(/\D/g, '');
+        logs = logs.filter(l => String(l.cpf || '').replace(/\D/g, '') === cpfBusca);
       }
-
-      console.log(`✅ ${logs.length} log(s) encontrado(s)`);
-
-      res.json({
-        success: true,
-        data: logs
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: 'Erro ao buscar logs'
-      });
-    }
-  } catch (error) {
-    console.error('❌ Erro ao buscar logs:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Erro ao buscar logs: ' + error.message
-    });
-  }
+      res.json({ success: true, data: logs });
+    } else { res.status(500).json({ success: false, message: 'Erro ao buscar logs' }); }
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
-/**
- * Health check
- */
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    googleScriptUrl: GOOGLE_SCRIPT_URL !== 'SUA_URL_DO_GOOGLE_APPS_SCRIPT_AQUI' ? 'Configurado' : 'NÃO CONFIGURADO'
-  });
-});
+app.get('/health', (req, res) => res.json({ status: 'OK', env: !!GOOGLE_SCRIPT_URL }));
 
-/**
- * Servir o frontend
- */
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// Redireciona raiz para index.html (proteção será via JS no front)
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// Rota específica para a página de login
+app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 
-// Iniciar servidor
-app.listen(PORT, () => {
-  console.log('🚀 Servidor iniciado!');
-  console.log(`📍 Acesse: http://localhost:${PORT}`);
-  console.log(`📊 API Pessoas: http://localhost:${PORT}/api/pessoas`);
-  console.log(`🗓️  API Viagens: http://localhost:${PORT}/api/viagens`);
-
-  if (GOOGLE_SCRIPT_URL === 'SUA_URL_DO_GOOGLE_APPS_SCRIPT_AQUI') {
-    console.warn('⚠️  ATENÇÃO: Configure a URL do Google Apps Script no arquivo .env ou na variável GOOGLE_SCRIPT_URL');
-  }
+app.listen(PORT, '0.0.0.0', () => {
+  const localIp = getLocalIpAddress();
+  console.log(`\n🚀 Servidor iniciado!`);
+  console.log(`💻 Local: http://localhost:${PORT}`);
+  console.log(`📱 Rede: http://${localIp}:${PORT}`);
 });
