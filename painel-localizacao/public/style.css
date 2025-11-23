@@ -1,5 +1,5 @@
 /* ============================================================================
-   PAINEL ELLUS - ESTILOS CORPORATIVOS (PADRONIZADO)
+   PAINEL ELLUS - ESTILOS CORPORATIVOS (CORREÇÃO DE CORES)
    ============================================================================ */
 
 :root {
@@ -8,19 +8,19 @@
   --text-main: #333333;      
   --text-light: #666666;     
   
-  /* Cores da Identidade Visual */
   --brand-dark-green: #5A7340;  
   --brand-light-green: #BAD94A; 
   --brand-neon: #D7F205;        
   
-  /* Cores de Status */
   --col-quarto: #5A7340;        
   --col-fora: #F59E0B;          
   --col-balada: #8B5CF6;        
   
-  /* Cores de Texto */
   --text-green: #2e7d32;        
   --text-red: #d32f2f;          
+  
+  --primary: #5A7340;           
+  --secondary: #BAD94A;         
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -28,12 +28,12 @@ body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
   background: var(--bg-color); 
   color: var(--text-main); 
-  height: 100vh; /* Garante altura total */
-  overflow: hidden; /* Evita scroll no body, usa scroll interno */
+  height: 100vh; 
+  overflow: hidden; 
 }
 .hidden { display: none !important; }
 
-/* Layout Principal */
+/* Layout */
 .app-container {
   max-width: 100%;
   height: 100vh;
@@ -55,7 +55,7 @@ body {
   align-items: center;
   gap: 15px;
   border-bottom: 3px solid var(--brand-light-green);
-  flex-shrink: 0; /* Não encolher */
+  flex-shrink: 0; 
 }
 
 .logo-area img { height: 45px; width: auto; }
@@ -71,19 +71,20 @@ body {
 }
 .operator-name { font-weight: 600; color: var(--brand-dark-green); font-size: 0.9rem; }
 
-/* Botões e Inputs */
 .controls-area { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .form-select, .form-input {
   padding: 8px; border: 1px solid #ddd; border-radius: 4px; outline: none;
 }
 .form-input:focus { border-color: var(--brand-light-green); }
 
+/* Botões Gerais */
 .btn {
   padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;
   font-weight: 600; color: white; transition: all 0.2s;
   display: inline-flex; align-items: center; gap: 5px; font-size: 0.85rem;
 }
 .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
 .btn-primary { background: var(--brand-dark-green); }
 .btn-secondary { background: var(--brand-light-green); color: #333; }
 
@@ -93,6 +94,27 @@ body {
 }
 .btn-logout:hover {
   background: #ef4444 !important; color: white !important;
+}
+
+/* BOTÕES DO MODAL */
+.btn-green { 
+  background-color: var(--col-quarto) !important; 
+  color: white !important;
+}
+.btn-orange { 
+  background-color: var(--col-fora) !important; 
+  color: white !important;
+}
+.btn-purple { 
+  background-color: var(--col-balada) !important; 
+  color: white !important;
+}
+.btn-sm { font-size: 0.8rem; padding: 8px 12px; }
+
+.btn-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 /* Stats Bar */
@@ -112,24 +134,18 @@ body {
 .stat-val { font-size: 1.5rem; font-weight: 700; display: block; }
 .stat-label { font-size: 0.75rem; color: #777; text-transform: uppercase; }
 
-/* Conteúdo Principal (Onde ficam as Views) */
+/* Main Content */
 .main-content {
-  flex: 1; /* Ocupa o resto da altura */
-  overflow: hidden; /* Controla scroll interno */
-  position: relative;
+  flex: 1; overflow: hidden; position: relative;
 }
 
-/* ==========================================================================
-   VIEW GRID (QUARTOS) - PADRONIZAÇÃO DOS QUADRADOS
-   ========================================================================== */
+/* View Grid (Quartos) */
 .view-grid {
   display: grid;
-  /* Define colunas flexíveis com largura mínima de 280px */
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  /* Define altura fixa para as linhas dos cards */
   grid-auto-rows: 300px; 
   gap: 15px;
-  overflow-y: auto; /* Scroll apenas aqui */
+  overflow-y: auto;
   height: 100%;
   padding-right: 5px;
 }
@@ -140,17 +156,12 @@ body {
   border: 1px solid #e0e0e0;
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* Garante que nada saia do quadrado */
+  overflow: hidden;
   box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.2s;
 }
+.room-card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
 
-.room-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-}
-
-/* Cabeçalho do Card */
 .room-header {
   background: var(--brand-dark-green);
   color: white;
@@ -159,22 +170,17 @@ body {
   justify-content: space-between;
   align-items: center;
   font-weight: 700;
-  flex-shrink: 0; /* Cabeçalho não encolhe */
+  flex-shrink: 0;
 }
+.room-warning .room-header { background: var(--col-fora); }
 
-.room-warning .room-header { 
-  background: var(--col-fora); /* Laranja se tiver alerta */
-}
-
-/* Lista de Alunos dentro do Card */
 .room-list {
   padding: 10px;
-  overflow-y: auto; /* Scroll interno se a lista for grande */
-  flex: 1; /* Ocupa todo espaço disponível */
+  overflow-y: auto;
+  flex: 1;
   background: #fff;
 }
 
-/* Item Aluno */
 .room-student {
   display: flex;
   align-items: center;
@@ -185,38 +191,20 @@ body {
 
 .student-info {
   flex: 1;
-  min-width: 0; /* Necessário para text-overflow funcionar em flex */
+  min-width: 0;
   margin-right: 5px;
 }
 
 .student-name-small {
-  display: block;
-  font-size: 0.9rem;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: block; font-size: 0.9rem; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-
 .student-school {
-  display: block;
-  font-size: 0.7rem;
-  color: #888;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: block; font-size: 0.7rem; color: #888;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* Status Dots e Emojis */
-.status-emoji { 
-  font-size: 1.1rem;
-  margin-right: 10px; flex-shrink: 0; 
-}
-/* Fallback se emoji não carregar */
-.dot-quarto { color: var(--col-quarto); }
-.dot-fora { color: var(--col-fora); }
-.dot-balada { color: var(--col-balada); }
-
+.status-emoji { font-size: 1.1rem; margin-right: 10px; flex-shrink: 0; }
 .text-green { color: var(--text-green); }
 .text-red { color: var(--text-red); }
 
@@ -227,8 +215,7 @@ body {
 }
 .btn-icon-small:hover { color: var(--brand-dark-green); }
 
-
-/* VIEW COLUMNS (ANTIGO) */
+/* View Columns */
 .view-columns {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -257,10 +244,22 @@ body {
 .card-header { display: flex; justify-content: space-between; font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; }
 .card-body p { font-size: 0.8rem; color: #666; margin: 0; }
 .card-actions { display: flex; gap: 5px; margin-top: 8px; }
+
+/* Botões do Card de Coluna */
 .btn-action {
-  flex: 1; padding: 4px; font-size: 0.75rem; background: #f3f4f6;
-  border: 1px solid #ddd; border-radius: 4px; cursor: pointer;
+  flex: 1; padding: 6px; font-size: 0.8rem; 
+  border-radius: 4px; cursor: pointer; font-weight: 600;
+  border: none; transition: background 0.2s;
 }
+.btn-details {
+  background-color: #f0fdf4; color: var(--brand-dark-green); border: 1px solid var(--brand-light-green);
+}
+.btn-details:hover { background-color: var(--brand-light-green); color: #fff; }
+
+.btn-move-action {
+  background-color: #fff7ed; color: var(--col-fora); border: 1px solid var(--col-fora);
+}
+.btn-move-action:hover { background-color: var(--col-fora); color: white; }
 
 /* Modal */
 .modal-overlay {
@@ -302,6 +301,44 @@ body {
 .toast.success { border-left-color: var(--brand-dark-green); }
 .toast.error { border-left-color: #ef4444; }
 @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+/* ============================================================================
+   MENU DE CONTEXTO (CORREÇÃO DO BOTÃO MOVER)
+   ============================================================================ */
+.context-menu {
+  position: fixed; /* Fixed garante visibilidade sobre outros elementos */
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  z-index: 9999;
+  min-width: 140px;
+  overflow: hidden;
+  animation: fadeIn 0.1s ease-out;
+  display: flex;
+  flex-direction: column;
+}
+.context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 15px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #333;
+  transition: background 0.2s;
+  border-bottom: 1px solid #f5f5f5;
+  font-family: inherit;
+}
+.context-menu button:last-child { border-bottom: none; }
+.context-menu button:hover {
+  background-color: #f0fdf4;
+  color: var(--brand-dark-green);
+  font-weight: 600;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 768px) {
   .stats-bar { grid-template-columns: 1fr 1fr; }

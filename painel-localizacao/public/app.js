@@ -1,5 +1,5 @@
 // ============================================================================
-// PAINEL DE LOCALIZAÇÃO - ELLUS (FINAL COM EMOJIS)
+// PAINEL DE LOCALIZAÇÃO - ELLUS
 // ============================================================================
 
 const STATUS = {
@@ -9,8 +9,8 @@ const STATUS = {
 };
 
 const ITENS_POR_PAGINA = 50;
-let todasPessoas = [];       // Status dinâmico (PESSOAS)
-let listaQuartosFixa = [];   // Lista estruturada (HOMELIST)
+let todasPessoas = [];
+let listaQuartosFixa = [];
 let viagensSelecionada = '';
 let termoPesquisa = '';
 let alunoSelecionado = null;
@@ -48,6 +48,17 @@ const elements = {
   modalDetalhes: document.getElementById('modalDetalhes'),
   toastContainer: document.getElementById('toastContainer'),
   ultimaAtualizacao: document.getElementById('ultimaAtualizacao')
+};
+
+// ✅ FUNÇÃO GLOBAL PARA MOVER NO MODAL
+window.moverNoModal = async function(status) {
+  if (alunoSelecionado) {
+    const cpf = alunoSelecionado.cpf || alunoSelecionado.CPF;
+    const nome = alunoSelecionado.nome || alunoSelecionado.Nome || 'Aluno';
+    await moverAluno(cpf, nome, status);
+  } else {
+    mostrarToast('Erro: Nenhum aluno selecionado', 'error');
+  }
 };
 
 async function init() {
@@ -147,12 +158,10 @@ async function carregarDados(silent = false) {
   try {
     if (!silent) mostrarLoading();
     
-    // 1. Buscar PESSOAS (Status Recente)
     const resPessoas = await fetch('/api/pessoas');
     const dataPessoas = await resPessoas.json();
     if (dataPessoas.success) todasPessoas = dataPessoas.data || [];
 
-    // 2. Buscar QUARTOS (Estrutura Fixa da HOMELIST)
     if (!silent || listaQuartosFixa.length === 0) {
       try {
         const resQuartos = await fetch('/api/quartos');
@@ -263,9 +272,6 @@ function renderizarLista(container, pessoas, countElem, statusDestino, keyPag) {
   configurarDropZone(container, statusDestino);
 }
 
-// ============================================================================
-// RENDERIZAR QUARTOS - LÓGICA SIMPLIFICADA E DIRETA
-// ============================================================================
 function renderizarGridQuartos() {
   const container = elements.viewQuartos;
   container.innerHTML = '';
@@ -278,21 +284,17 @@ function renderizarGridQuartos() {
   const quartosMap = {};
   
   listaQuartosFixa.forEach(item => {
-    // Chaves conforme script Google Apps Script (headers da planilha)
     let numQuarto = String(item['Quarto'] || item['quarto'] || 'Sem Nº').trim();
     if (!quartosMap[numQuarto]) quartosMap[numQuarto] = [];
 
-    // DADOS DIRETOS DA HOMELIST
     const nomeHospede = item['Nome do Hóspede'] || item['Nome'] || item['nome'] || 'Sem Nome';
     const escola = item['Escola'] || item['escola'] || '';
     const cpfRaw = item['CPF'] || item['cpf'] || '';
 
-    // APENAS O STATUS VEM DO CRUZAMENTO
-    let statusFinal = 'VOLTOU_AO_QUARTO'; // Default Verde
+    let statusFinal = 'VOLTOU_AO_QUARTO'; 
     
     if (cpfRaw) {
       const cpfLimpo = limparCPF(cpfRaw);
-      // Busca na lista dinâmica APENAS para saber se saiu
       const pessoaEncontrada = todasPessoas.find(p => limparCPF(p.cpf) === cpfLimpo);
       
       if (pessoaEncontrada && pessoaEncontrada.movimentacao) {
@@ -309,7 +311,6 @@ function renderizarGridQuartos() {
     });
   });
 
-  // Ordenação Numérica
   const chaves = Object.keys(quartosMap).sort((a, b) => {
     const na = parseInt(a.replace(/\D/g,''));
     const nb = parseInt(b.replace(/\D/g,''));
@@ -319,7 +320,6 @@ function renderizarGridQuartos() {
 
   chaves.forEach(num => {
     const alunosNoQuarto = quartosMap[num];
-    // Filtro de pesquisa visual
     if (termoPesquisa) {
       const termo = termoPesquisa.toLowerCase();
       const matches = alunosNoQuarto.some(a => 
@@ -361,10 +361,11 @@ function criarCardQuarto(numero, alunos) {
     const isOut = st.includes('SAIU') || st.includes('FORA') || st.includes('BALADA');
     const nameClass = isOut ? 'text-red' : 'text-green';
     
-    // EMOJIS DE STATUS
-    let emojiStatus = '🛌'; // Padrão dormindo/quarto
+    let emojiStatus = '🛌';
     if (st.includes('SAIU') || st.includes('FORA')) emojiStatus = '🚶';
     if (st.includes('BALADA')) emojiStatus = '🎉';
+
+    const cpfSafe = p.cpf ? p.cpf.toString().replace(/'/g, "\\'") : '';
 
     item.innerHTML = `
       <div class="status-emoji" title="${formatarStatus(st)}">${emojiStatus}</div>
@@ -372,7 +373,7 @@ function criarCardQuarto(numero, alunos) {
           <span class="student-name-small ${nameClass}" title="${p.nome}">${p.nome}</span>
           ${p.escola ? `<span class="student-school">🎓 ${p.escola}</span>` : ''}
       </div>
-      <button class="btn-icon-small" onclick="abrirModalCPF('${p.cpf}')">ℹ️</button>
+      <button class="btn-icon-small" onclick="abrirModalCPF('${cpfSafe}')">ℹ️</button>
     `;
     lista.appendChild(item);
   });
@@ -387,6 +388,10 @@ function criarCardAluno(p, currentStatus) {
   el.className = 'aluno-card';
   el.draggable = true;
   el.dataset.cpf = p.cpf;
+  
+  const cpfSafe = p.cpf ? p.cpf.toString().replace(/'/g, "\\'") : '';
+  const nomeSafe = p.nome ? p.nome.toString().replace(/'/g, "\\'") : '';
+
   el.innerHTML = `
     <div class="card-header">
       <span class="nome">${p.nome}</span>
@@ -397,8 +402,8 @@ function criarCardAluno(p, currentStatus) {
       <p>🏫 ${p.turma || ''} - ${p.colegio || ''}</p>
     </div>
     <div class="card-actions">
-      <button class="btn-action" onclick="abrirModalCPF('${p.cpf}')">👁️ Detalhes</button>
-      <button class="btn-action btn-move" onclick="mostrarMenuMover(this, '${p.cpf}', '${p.nome}')">🔄 Mover</button>
+      <button class="btn-action btn-details" onclick="abrirModalCPF('${cpfSafe}')">👁️ Detalhes</button>
+      <button class="btn-action btn-move-action" onclick="mostrarMenuMover(this, '${cpfSafe}', '${nomeSafe}')">🔄 Mover</button>
     </div>
   `;
   el.addEventListener('dragstart', (e) => {
@@ -471,25 +476,38 @@ async function moverAluno(cpf, nome, novoStatus) {
   }
 }
 
+// CORREÇÃO: Função para exibir o menu com estilos aplicados
 function mostrarMenuMover(btn, cpf, nome) {
+  // Remove menus existentes
   document.querySelectorAll('.context-menu').forEach(m => m.remove());
+  
   const menu = document.createElement('div');
   menu.className = 'context-menu';
+  
   const items = [
-    { l: '🛏️ Quarto', v: STATUS.QUARTO },
-    { l: '🚶 Fora', v: STATUS.FORA },
-    { l: '🎉 Balada', v: STATUS.BALADA }
+    { l: '<i class="fas fa-bed"></i> Voltou pro Quarto', v: STATUS.QUARTO },
+    { l: '<i class="fas fa-walking"></i> Saiu do Quarto', v: STATUS.FORA },
+    { l: '<i class="fas fa-music"></i> Foi pra Balada', v: STATUS.BALADA }
   ];
+  
   items.forEach(it => {
     const b = document.createElement('button');
     b.innerHTML = it.l;
-    b.onclick = () => { menu.remove(); moverAluno(cpf, nome, it.v); };
+    b.onclick = () => { 
+      menu.remove(); 
+      moverAluno(cpf, nome, it.v); 
+    };
     menu.appendChild(b);
   });
+
+  // Posicionamento
   const rect = btn.getBoundingClientRect();
   menu.style.top = (rect.bottom + 5) + 'px';
   menu.style.left = rect.left + 'px';
+  
   document.body.appendChild(menu);
+
+  // Fechar ao clicar fora
   setTimeout(() => {
     document.addEventListener('click', function f(e) {
       if (!menu.contains(e.target) && e.target !== btn) {
@@ -497,7 +515,7 @@ function mostrarMenuMover(btn, cpf, nome) {
         document.removeEventListener('click', f);
       }
     });
-  }, 0);
+  }, 10);
 }
 
 function configurarDropZone(el, statusDestino) {
@@ -579,10 +597,6 @@ function fecharModal() {
   elements.modalDetalhes.style.display = 'none';
   alunoSelecionado = null;
 }
-
-window.moverNoModal = (status) => {
-  if (alunoSelecionado) moverAluno(alunoSelecionado.cpf, alunoSelecionado.nome, status);
-};
 
 function resetPaginacao() {
   paginacao.quarto.paginaAtual = 1;
