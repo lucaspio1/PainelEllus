@@ -1,11 +1,18 @@
+// ============================================================================
+// PAINEL DE LOCALIZAÇÃO - ELLUS (VERSÃO ROBUSTA)
+// ============================================================================
+
 // Estado da aplicação
 let todasPessoas = [];
 let viagensSelecionada = '';
 let autoRefreshInterval = null;
+let termoPesquisa = '';
+let alunoSelecionado = null;
 
 // Elementos do DOM
 const elements = {
   filtroViagem: document.getElementById('filtroViagem'),
+  inputPesquisa: document.getElementById('inputPesquisa'),
   btnAtualizar: document.getElementById('btnAtualizar'),
   ultimaAtualizacao: document.getElementById('ultimaAtualizacao'),
   totalAlunos: document.getElementById('totalAlunos'),
@@ -20,20 +27,44 @@ const elements = {
   listaBalada: document.getElementById('listaBalada'),
   loadingOverlay: document.getElementById('loadingOverlay'),
   errorMessage: document.getElementById('errorMessage'),
-  errorText: document.getElementById('errorText')
+  errorText: document.getElementById('errorText'),
+  modalDetalhes: document.getElementById('modalDetalhes'),
+  toastContainer: document.getElementById('toastContainer')
 };
 
 /**
  * Inicialização da aplicação
  */
 async function init() {
-  console.log('🚀 Inicializando painel...');
+  console.log('🚀 Inicializando painel robusto...');
 
   // Event Listeners
   elements.btnAtualizar.addEventListener('click', () => carregarDados());
   elements.filtroViagem.addEventListener('change', (e) => {
     viagensSelecionada = e.target.value;
     renderizarPainel();
+  });
+  elements.inputPesquisa.addEventListener('input', (e) => {
+    termoPesquisa = e.target.value.toLowerCase().trim();
+    renderizarPainel();
+  });
+
+  // Fechar modal ao clicar fora
+  elements.modalDetalhes.addEventListener('click', (e) => {
+    if (e.target === elements.modalDetalhes) {
+      fecharModal();
+    }
+  });
+
+  // Atalhos de teclado
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      fecharModal();
+    }
+    if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
+      e.preventDefault();
+      carregarDados();
+    }
   });
 
   // Carregar dados iniciais
@@ -44,7 +75,7 @@ async function init() {
     carregarDados(true); // true = silent refresh
   }, 30000);
 
-  console.log('✅ Painel inicializado');
+  console.log('✅ Painel robusto inicializado');
 }
 
 /**
@@ -113,7 +144,6 @@ function atualizarFiltroViagens(viagens) {
   viagens.forEach(viagem => {
     const option = document.createElement('option');
     option.value = `${viagem.inicio_viagem}|${viagem.fim_viagem}`;
-    // Formatar as datas para português
     const inicioFormatado = formatarData(viagem.inicio_viagem);
     const fimFormatado = formatarData(viagem.fim_viagem);
     option.textContent = `${inicioFormatado} até ${fimFormatado}`;
@@ -140,7 +170,17 @@ function renderizarPainel() {
     pessoasFiltradas = todasPessoas.filter(pessoa => {
       return pessoa.inicio_viagem === inicioViagem && pessoa.fim_viagem === fimViagem;
     });
-    console.log(`🔍 Filtrado: ${pessoasFiltradas.length} pessoas para viagem ${inicioViagem} - ${fimViagem}`);
+    console.log(`🔍 Filtrado por viagem: ${pessoasFiltradas.length} pessoas`);
+  }
+
+  // Filtrar por termo de pesquisa
+  if (termoPesquisa) {
+    pessoasFiltradas = pessoasFiltradas.filter(pessoa => {
+      const nome = (pessoa.nome || '').toLowerCase();
+      const cpf = (pessoa.cpf || '').toLowerCase();
+      return nome.includes(termoPesquisa) || cpf.includes(termoPesquisa);
+    });
+    console.log(`🔍 Filtrado por pesquisa: ${pessoasFiltradas.length} pessoas`);
   }
 
   // Categorizar pessoas por movimentação
@@ -150,9 +190,9 @@ function renderizarPainel() {
   atualizarEstatisticas(categorias, pessoasFiltradas.length);
 
   // Renderizar listas
-  renderizarLista(elements.listaQuarto, categorias.quarto, elements.countQuarto);
-  renderizarLista(elements.listaFora, categorias.fora, elements.countFora);
-  renderizarLista(elements.listaBalada, categorias.balada, elements.countBalada);
+  renderizarLista(elements.listaQuarto, categorias.quarto, elements.countQuarto, 'QUARTO');
+  renderizarLista(elements.listaFora, categorias.fora, elements.countFora, 'FORA_DO_QUARTO');
+  renderizarLista(elements.listaBalada, categorias.balada, elements.countBalada, 'BALADA');
 
   console.log('✅ Painel renderizado');
 }
@@ -170,8 +210,6 @@ function categorizarPessoas(pessoas) {
   pessoas.forEach(pessoa => {
     const movimentacao = (pessoa.movimentacao || '').toString().trim().toUpperCase();
 
-    console.log(`👤 ${pessoa.nome} - Movimentação: "${movimentacao}"`);
-
     if (movimentacao === 'VOLTOU_AO_QUARTO' || movimentacao === 'QUARTO') {
       categorias.quarto.push(pessoa);
     } else if (movimentacao === 'SAIU_DO_QUARTO' || movimentacao === 'FORA_DO_QUARTO') {
@@ -179,10 +217,8 @@ function categorizarPessoas(pessoas) {
     } else if (movimentacao === 'FOI_PARA_BALADA' || movimentacao === 'BALADA') {
       categorias.balada.push(pessoa);
     } else if (movimentacao === '') {
-      // Se não tem movimentação, assume que está no quarto
       categorias.quarto.push(pessoa);
     } else {
-      // Outros status - tentar categorizar baseado em palavras-chave
       if (movimentacao.includes('QUARTO')) {
         categorias.quarto.push(pessoa);
       } else if (movimentacao.includes('BALADA')) {
@@ -191,12 +227,6 @@ function categorizarPessoas(pessoas) {
         categorias.fora.push(pessoa);
       }
     }
-  });
-
-  console.log('📊 Categorização:', {
-    quarto: categorias.quarto.length,
-    fora: categorias.fora.length,
-    balada: categorias.balada.length
   });
 
   return categorias;
@@ -215,72 +245,433 @@ function atualizarEstatisticas(categorias, total) {
 /**
  * Renderizar lista de alunos
  */
-function renderizarLista(container, pessoas, countElement) {
-  // Limpar container
+function renderizarLista(container, pessoas, countElement, categoria) {
   container.innerHTML = '';
-
-  // Atualizar contador
   countElement.textContent = pessoas.length;
 
-  // Se não há pessoas, mostrar mensagem
   if (pessoas.length === 0) {
     container.innerHTML = '<p class="empty-message">Nenhum aluno nesta categoria</p>';
     return;
   }
 
-  // Renderizar cada pessoa
   pessoas.forEach(pessoa => {
-    const card = criarCardAluno(pessoa);
+    const card = criarCardAluno(pessoa, categoria);
     container.appendChild(card);
   });
+
+  // Configurar drag & drop
+  configurarDragAndDrop(container);
 }
 
 /**
- * Criar card de aluno
+ * Criar card de aluno com informações completas
  */
-function criarCardAluno(pessoa) {
+function criarCardAluno(pessoa, categoria) {
   const card = document.createElement('div');
   card.className = 'aluno-card';
+  card.draggable = true;
+  card.dataset.cpf = pessoa.cpf;
+  card.dataset.nome = pessoa.nome;
+  card.dataset.categoria = categoria;
 
+  // Nome
   const nome = document.createElement('div');
   nome.className = 'aluno-nome';
   nome.textContent = pessoa.nome || 'Nome não informado';
 
+  // Informações adicionais
+  const info = document.createElement('div');
+  info.className = 'aluno-info';
+
+  const infoCpf = document.createElement('div');
+  infoCpf.className = 'aluno-info-item';
+  infoCpf.innerHTML = `<span class="aluno-info-label">CPF:</span> ${formatarCPF(pessoa.cpf)}`;
+
+  const infoColegio = document.createElement('div');
+  infoColegio.className = 'aluno-info-item';
+  infoColegio.innerHTML = `<span class="aluno-info-label">Colégio:</span> ${pessoa.colegio || 'N/A'}`;
+
+  const infoTurma = document.createElement('div');
+  infoTurma.className = 'aluno-info-item';
+  infoTurma.innerHTML = `<span class="aluno-info-label">Turma:</span> ${pessoa.turma || 'N/A'}`;
+
+  info.appendChild(infoCpf);
+  info.appendChild(infoColegio);
+  info.appendChild(infoTurma);
+
+  // Botões de ação rápida
+  const acoes = document.createElement('div');
+  acoes.className = 'card-acoes';
+
+  const btnDetalhes = document.createElement('button');
+  btnDetalhes.className = 'btn-card-acao';
+  btnDetalhes.textContent = '👁️ Detalhes';
+  btnDetalhes.onclick = (e) => {
+    e.stopPropagation();
+    abrirModalDetalhes(pessoa);
+  };
+
+  const btnMover = document.createElement('button');
+  btnMover.className = 'btn-card-acao btn-mover';
+  btnMover.textContent = '🔄 Mover';
+  btnMover.onclick = (e) => {
+    e.stopPropagation();
+    mostrarOpcoesMovimento(pessoa, btnMover);
+  };
+
+  acoes.appendChild(btnDetalhes);
+  acoes.appendChild(btnMover);
+
   card.appendChild(nome);
+  card.appendChild(info);
+  card.appendChild(acoes);
 
   return card;
 }
 
 /**
- * Formatar data ISO para formato brasileiro
+ * Configurar drag and drop para os cards
  */
-function formatarData(dataISO) {
-  if (!dataISO) return '';
+function configurarDragAndDrop(container) {
+  const cards = container.querySelectorAll('.aluno-card');
 
+  cards.forEach(card => {
+    card.addEventListener('dragstart', (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/html', card.innerHTML);
+      e.dataTransfer.setData('cpf', card.dataset.cpf);
+      e.dataTransfer.setData('nome', card.dataset.nome);
+      e.dataTransfer.setData('categoriaOrigem', card.dataset.categoria);
+      card.classList.add('dragging');
+    });
+
+    card.addEventListener('dragend', (e) => {
+      card.classList.remove('dragging');
+    });
+  });
+
+  // Configurar drop zones
+  const panels = document.querySelectorAll('.panel-content');
+  panels.forEach(panel => {
+    panel.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      panel.classList.add('drag-over');
+    });
+
+    panel.addEventListener('dragleave', (e) => {
+      panel.classList.remove('drag-over');
+    });
+
+    panel.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      panel.classList.remove('drag-over');
+
+      const cpf = e.dataTransfer.getData('cpf');
+      const nome = e.dataTransfer.getData('nome');
+      const categoriaOrigem = e.dataTransfer.getData('categoriaOrigem');
+
+      // Determinar categoria de destino
+      let categoriaDestino = '';
+      if (panel === elements.listaQuarto) {
+        categoriaDestino = 'QUARTO';
+      } else if (panel === elements.listaFora) {
+        categoriaDestino = 'FORA_DO_QUARTO';
+      } else if (panel === elements.listaBalada) {
+        categoriaDestino = 'BALADA';
+      }
+
+      if (categoriaOrigem === categoriaDestino) {
+        console.log('⚠️ Aluno já está nesta categoria');
+        return;
+      }
+
+      console.log(`🔄 Movendo ${nome} de ${categoriaOrigem} para ${categoriaDestino}`);
+      await moverAluno(cpf, nome, categoriaDestino);
+    });
+  });
+}
+
+/**
+ * Mostrar menu de opções de movimento
+ */
+function mostrarOpcoesMovimento(pessoa, botao) {
+  // Remover menus existentes
+  document.querySelectorAll('.menu-movimento').forEach(menu => menu.remove());
+
+  const menu = document.createElement('div');
+  menu.className = 'menu-movimento';
+
+  const opcoes = [
+    { label: '🛏️ Quarto', valor: 'QUARTO' },
+    { label: '🚶 Fora do Quarto', valor: 'FORA_DO_QUARTO' },
+    { label: '🎉 Balada', valor: 'BALADA' }
+  ];
+
+  opcoes.forEach(opcao => {
+    const btn = document.createElement('button');
+    btn.className = 'menu-movimento-item';
+    btn.textContent = opcao.label;
+    btn.onclick = async () => {
+      menu.remove();
+      await moverAluno(pessoa.cpf, pessoa.nome, opcao.valor);
+    };
+    menu.appendChild(btn);
+  });
+
+  // Posicionar menu próximo ao botão
+  const rect = botao.getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.top = `${rect.bottom + 5}px`;
+  menu.style.left = `${rect.left}px`;
+
+  document.body.appendChild(menu);
+
+  // Fechar ao clicar fora
+  setTimeout(() => {
+    document.addEventListener('click', function fecharMenu(e) {
+      if (!menu.contains(e.target) && e.target !== botao) {
+        menu.remove();
+        document.removeEventListener('click', fecharMenu);
+      }
+    });
+  }, 100);
+}
+
+/**
+ * Mover aluno para nova localização
+ */
+async function moverAluno(cpf, nome, novaLocalizacao) {
   try {
-    // Tenta criar objeto Date a partir da string ISO
-    const data = new Date(dataISO);
+    console.log(`📍 Movendo ${nome} para ${novaLocalizacao}...`);
+    mostrarToast('Movimentando aluno...', 'info');
 
-    // Verifica se a data é válida
-    if (isNaN(data.getTime())) {
-      return dataISO; // Retorna original se não conseguir converter
+    const response = await fetch('/api/movimentar', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        cpf: cpf,
+        nome: nome,
+        novaLocalizacao: novaLocalizacao
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      console.log('✅ Aluno movido com sucesso');
+      mostrarToast(`${nome} movido para ${formatarLocalizacao(novaLocalizacao)}`, 'success');
+
+      // Atualizar dados localmente
+      const pessoa = todasPessoas.find(p => p.cpf === cpf);
+      if (pessoa) {
+        pessoa.movimentacao = novaLocalizacao;
+      }
+
+      // Re-renderizar painel
+      renderizarPainel();
+
+      // Atualizar modal se estiver aberto
+      if (alunoSelecionado && alunoSelecionado.cpf === cpf) {
+        alunoSelecionado.movimentacao = novaLocalizacao;
+        atualizarModalDetalhes();
+      }
+
+    } else {
+      throw new Error(data.message || 'Erro ao mover aluno');
     }
 
-    // Formata para dd/mm/aaaa em português
+  } catch (error) {
+    console.error('❌ Erro ao mover aluno:', error);
+    mostrarToast('Erro ao mover aluno: ' + error.message, 'error');
+  }
+}
+
+/**
+ * Abrir modal de detalhes do aluno
+ */
+async function abrirModalDetalhes(pessoa) {
+  alunoSelecionado = pessoa;
+
+  document.getElementById('detalheNome').textContent = pessoa.nome || 'N/A';
+  document.getElementById('detalheCpf').textContent = formatarCPF(pessoa.cpf);
+  document.getElementById('detalheColegio').textContent = pessoa.colegio || 'N/A';
+  document.getElementById('detalheTurma').textContent = pessoa.turma || 'N/A';
+
+  const localizacao = formatarLocalizacao(pessoa.movimentacao);
+  const badgeLocalizacao = document.getElementById('detalheLocalizacao');
+  badgeLocalizacao.textContent = localizacao;
+  badgeLocalizacao.className = 'badge badge-' + getBadgeClass(pessoa.movimentacao);
+
+  elements.modalDetalhes.style.display = 'flex';
+
+  // Carregar histórico
+  await carregarHistorico(pessoa.cpf);
+}
+
+/**
+ * Atualizar informações do modal (após movimentação)
+ */
+function atualizarModalDetalhes() {
+  if (!alunoSelecionado) return;
+
+  const localizacao = formatarLocalizacao(alunoSelecionado.movimentacao);
+  const badgeLocalizacao = document.getElementById('detalheLocalizacao');
+  badgeLocalizacao.textContent = localizacao;
+  badgeLocalizacao.className = 'badge badge-' + getBadgeClass(alunoSelecionado.movimentacao);
+
+  // Recarregar histórico
+  carregarHistorico(alunoSelecionado.cpf);
+}
+
+/**
+ * Fechar modal
+ */
+function fecharModal() {
+  elements.modalDetalhes.style.display = 'none';
+  alunoSelecionado = null;
+}
+
+/**
+ * Mover aluno a partir do modal
+ */
+async function moverAlunoModal(novaLocalizacao) {
+  if (!alunoSelecionado) return;
+  await moverAluno(alunoSelecionado.cpf, alunoSelecionado.nome, novaLocalizacao);
+}
+
+/**
+ * Carregar histórico de movimentações
+ */
+async function carregarHistorico(cpf) {
+  const listaHistorico = document.getElementById('listaHistorico');
+  listaHistorico.innerHTML = '<p class="loading-historico">Carregando histórico...</p>';
+
+  try {
+    const response = await fetch(`/api/logs?cpf=${cpf}`);
+    const data = await response.json();
+
+    if (data.success) {
+      const logs = data.data || [];
+
+      if (logs.length === 0) {
+        listaHistorico.innerHTML = '<p class="empty-message">Nenhuma movimentação registrada</p>';
+        return;
+      }
+
+      // Ordenar logs por timestamp (mais recente primeiro)
+      logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+      listaHistorico.innerHTML = '';
+
+      logs.forEach(log => {
+        const item = document.createElement('div');
+        item.className = 'historico-item';
+
+        const timestamp = document.createElement('div');
+        timestamp.className = 'historico-timestamp';
+        timestamp.textContent = formatarDataHora(log.timestamp);
+
+        const tipo = document.createElement('div');
+        tipo.className = 'historico-tipo badge badge-' + getBadgeClass(log.tipo);
+        tipo.textContent = formatarLocalizacao(log.tipo);
+
+        const operador = document.createElement('div');
+        operador.className = 'historico-operador';
+        operador.textContent = `Por: ${log.operador || 'Sistema'}`;
+
+        item.appendChild(timestamp);
+        item.appendChild(tipo);
+        item.appendChild(operador);
+
+        listaHistorico.appendChild(item);
+      });
+
+    } else {
+      throw new Error(data.message || 'Erro ao carregar histórico');
+    }
+
+  } catch (error) {
+    console.error('❌ Erro ao carregar histórico:', error);
+    listaHistorico.innerHTML = '<p class="error-message">Erro ao carregar histórico</p>';
+  }
+}
+
+/**
+ * Mostrar notificação toast
+ */
+function mostrarToast(mensagem, tipo = 'info') {
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${tipo}`;
+
+  const icon = tipo === 'success' ? '✅' : tipo === 'error' ? '❌' : 'ℹ️';
+  toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-message">${mensagem}</span>`;
+
+  elements.toastContainer.appendChild(toast);
+
+  // Animar entrada
+  setTimeout(() => toast.classList.add('show'), 10);
+
+  // Remover após 3 segundos
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+/**
+ * Formatações
+ */
+function formatarLocalizacao(mov) {
+  const movUpper = (mov || '').toString().toUpperCase();
+  if (movUpper === 'QUARTO' || movUpper === 'VOLTOU_AO_QUARTO') return 'Quarto';
+  if (movUpper === 'FORA_DO_QUARTO' || movUpper === 'SAIU_DO_QUARTO') return 'Fora do Quarto';
+  if (movUpper === 'BALADA' || movUpper === 'FOI_PARA_BALADA') return 'Balada';
+  return mov || 'Não definido';
+}
+
+function getBadgeClass(mov) {
+  const movUpper = (mov || '').toString().toUpperCase();
+  if (movUpper.includes('QUARTO')) return 'quarto';
+  if (movUpper.includes('BALADA')) return 'balada';
+  return 'fora';
+}
+
+function formatarData(dataISO) {
+  if (!dataISO) return '';
+  try {
+    const data = new Date(dataISO);
+    if (isNaN(data.getTime())) return dataISO;
     return data.toLocaleDateString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric'
     });
   } catch (error) {
-    console.error('Erro ao formatar data:', error);
     return dataISO;
   }
 }
 
-/**
- * Formatar CPF
- */
+function formatarDataHora(dataISO) {
+  if (!dataISO) return '';
+  try {
+    const data = new Date(dataISO);
+    if (isNaN(data.getTime())) return dataISO;
+    return data.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  } catch (error) {
+    return dataISO;
+  }
+}
+
 function formatarCPF(cpf) {
   if (!cpf) return '';
   const cleaned = cpf.replace(/\D/g, '');
@@ -290,9 +681,6 @@ function formatarCPF(cpf) {
   return cpf;
 }
 
-/**
- * Formatar hora
- */
 function formatarHora(data) {
   return data.toLocaleTimeString('pt-BR', {
     hour: '2-digit',
@@ -302,30 +690,21 @@ function formatarHora(data) {
 }
 
 /**
- * Mostrar loading
+ * Loading e Erros
  */
 function mostrarLoading() {
   elements.loadingOverlay.classList.remove('hidden');
 }
 
-/**
- * Esconder loading
- */
 function esconderLoading() {
   elements.loadingOverlay.classList.add('hidden');
 }
 
-/**
- * Mostrar erro
- */
 function mostrarErro(mensagem) {
   elements.errorText.textContent = mensagem;
   elements.errorMessage.style.display = 'block';
 }
 
-/**
- * Fechar erro
- */
 function fecharErro() {
   elements.errorMessage.style.display = 'none';
 }

@@ -109,6 +109,105 @@ app.get('/api/viagens', async (req, res) => {
 });
 
 /**
+ * Endpoint para movimentar aluno entre locais
+ */
+app.post('/api/movimentar', async (req, res) => {
+  try {
+    const { cpf, novaLocalizacao, nome } = req.body;
+
+    if (!cpf || !novaLocalizacao) {
+      return res.status(400).json({
+        success: false,
+        message: 'CPF e nova localização são obrigatórios'
+      });
+    }
+
+    console.log(`📍 Movimentando ${nome || cpf} para ${novaLocalizacao}...`);
+
+    // Registrar log de movimentação no Google Sheets
+    const logResponse = await axios.post(GOOGLE_SCRIPT_URL, {
+      action: 'addMovementLog',
+      people: [{
+        cpf: cpf,
+        personName: nome || 'Desconhecido',
+        tipo: novaLocalizacao,
+        movimentacao: novaLocalizacao,
+        timestamp: new Date().toISOString(),
+        confidence: 100,
+        operadorNome: 'Painel Web',
+        updated_at: new Date().toISOString()
+      }]
+    }, {
+      timeout: 30000,
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    console.log('✅ Movimentação registrada:', logResponse.data);
+
+    res.json({
+      success: true,
+      message: `${nome || 'Aluno'} movido para ${novaLocalizacao}`,
+      data: {
+        cpf,
+        novaLocalizacao,
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao movimentar aluno:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao movimentar aluno: ' + error.message
+    });
+  }
+});
+
+/**
+ * Endpoint para buscar logs de movimentação
+ */
+app.get('/api/logs', async (req, res) => {
+  try {
+    const { cpf, since } = req.query;
+    console.log('📥 Buscando logs de movimentação...');
+
+    let url = `${GOOGLE_SCRIPT_URL}?action=getAllLogs`;
+    if (since) {
+      url += `&since=${encodeURIComponent(since)}`;
+    }
+
+    const response = await axios.get(url, { timeout: 30000 });
+
+    if (response.data && response.data.success) {
+      let logs = response.data.data || [];
+
+      // Filtrar por CPF se fornecido
+      if (cpf) {
+        logs = logs.filter(log => log.cpf === cpf);
+      }
+
+      console.log(`✅ ${logs.length} log(s) encontrado(s)`);
+
+      res.json({
+        success: true,
+        data: logs
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Erro ao buscar logs'
+      });
+    }
+  } catch (error) {
+    console.error('❌ Erro ao buscar logs:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao buscar logs: ' + error.message
+    });
+  }
+});
+
+/**
  * Health check
  */
 app.get('/health', (req, res) => {

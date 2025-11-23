@@ -24,6 +24,16 @@
       </div>
 
       <div class="filter-group">
+        <label for="inputPesquisa">Pesquisar Aluno:</label>
+        <input
+          type="text"
+          id="inputPesquisa"
+          class="input-pesquisa"
+          placeholder="Digite o nome do aluno..."
+        >
+      </div>
+
+      <div class="filter-group">
         <button id="btnAtualizar" class="btn-atualizar">
           🔄 Atualizar
         </button>
@@ -103,6 +113,65 @@
       <p id="errorText"></p>
       <button onclick="fecharErro()">Fechar</button>
     </div>
+
+    <!-- Modal de Detalhes do Aluno -->
+    <div id="modalDetalhes" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Detalhes do Aluno</h2>
+          <button class="modal-close" onclick="fecharModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="aluno-detalhes">
+            <div class="detalhes-item">
+              <strong>Nome:</strong>
+              <span id="detalheNome">--</span>
+            </div>
+            <div class="detalhes-item">
+              <strong>CPF:</strong>
+              <span id="detalheCpf">--</span>
+            </div>
+            <div class="detalhes-item">
+              <strong>Colégio:</strong>
+              <span id="detalheColegio">--</span>
+            </div>
+            <div class="detalhes-item">
+              <strong>Turma:</strong>
+              <span id="detalheTurma">--</span>
+            </div>
+            <div class="detalhes-item">
+              <strong>Localização Atual:</strong>
+              <span id="detalheLocalizacao" class="badge">--</span>
+            </div>
+          </div>
+
+          <div class="acoes-rapidas">
+            <h3>Mover para:</h3>
+            <div class="btn-group">
+              <button class="btn-acao btn-quarto" onclick="moverAlunoModal('QUARTO')">
+                🛏️ Quarto
+              </button>
+              <button class="btn-acao btn-fora" onclick="moverAlunoModal('FORA_DO_QUARTO')">
+                🚶 Fora do Quarto
+              </button>
+              <button class="btn-acao btn-balada" onclick="moverAlunoModal('BALADA')">
+                🎉 Balada
+              </button>
+            </div>
+          </div>
+
+          <div class="historico-movimentacoes">
+            <h3>Histórico de Movimentações</h3>
+            <div id="listaHistorico" class="lista-historico">
+              <p class="loading-historico">Carregando histórico...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
   </div>
 
   <script src="app.js"></script>
