@@ -1,6 +1,8 @@
-# 🎯 Painel de Localização de Alunos - Ellus (Versão Robusta)
+# 🎯 Painel de Localização de Alunos - Ellus (Versão Robusta + Escalável)
 
 Sistema robusto de gerenciamento e rastreamento de localização de alunos em tempo real, com interface moderna e intuitiva.
+
+**✅ Suporta 1600+ alunos com paginação inteligente**
 
 ## ✨ Funcionalidades
 
@@ -20,12 +22,19 @@ Sistema robusto de gerenciamento e rastreamento de localização de alunos em te
   - 🎉 **Balada**
 
 ### 📊 Recursos Avançados
-- **Pesquisa em tempo real** por nome ou CPF
+- **Pesquisa em tempo real** por nome ou CPF (com debounce de 300ms)
 - **Filtro por viagem** (início e fim)
 - **Histórico completo** de movimentações de cada aluno
 - **Auto-refresh** a cada 30 segundos
 - **Notificações toast** para feedback de ações
 - **Atalhos de teclado** (ESC para fechar modal, F5 para atualizar)
+
+### ⚡ Performance e Escalabilidade
+- **Paginação automática**: Renderiza apenas 50 alunos por painel
+- **Suporta 1600+ alunos** sem travamentos
+- **Debounce na pesquisa**: 300ms para evitar renderizações excessivas
+- **Navegação entre páginas**: Botões Anterior/Próxima em cada painel
+- **Indicador de páginas**: "Exibindo 1-50 de 1600 alunos"
 
 ## 🚀 Como Usar
 

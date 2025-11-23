@@ -387,6 +387,62 @@ body {
   font-style: italic;
 }
 
+/* Controles de Paginação */
+.paginacao-controls {
+  margin-top: 15px;
+  padding: 15px;
+  background: #fff;
+  border-radius: 8px;
+  border: 2px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+.paginacao-info {
+  font-size: 0.9em;
+  color: #666;
+  font-weight: 500;
+}
+
+.paginacao-btns {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.btn-paginacao {
+  padding: 8px 16px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-paginacao:hover:not(:disabled) {
+  background: #5568d3;
+  transform: translateY(-2px);
+  box-shadow: 0 3px 8px rgba(102, 126, 234, 0.3);
+}
+
+.btn-paginacao:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.paginacao-indicador {
+  font-weight: 600;
+  color: #333;
+  min-width: 60px;
+  text-align: center;
+}
+
 /* Modal */
 .modal {
   display: none;

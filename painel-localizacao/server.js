@@ -113,7 +113,7 @@ app.get('/api/viagens', async (req, res) => {
  */
 app.post('/api/movimentar', async (req, res) => {
   try {
-    const { cpf, novaLocalizacao, nome } = req.body;
+    const { cpf, novaLocalizacao, nome, colegio, turma, inicioViagem, fimViagem } = req.body;
 
     if (!cpf || !novaLocalizacao) {
       return res.status(400).json({
@@ -123,6 +123,7 @@ app.post('/api/movimentar', async (req, res) => {
     }
 
     console.log(`📍 Movimentando ${nome || cpf} para ${novaLocalizacao}...`);
+    console.log(`📅 Viagem: ${inicioViagem} até ${fimViagem}`);
 
     // Registrar log de movimentação no Google Sheets
     const logResponse = await axios.post(GOOGLE_SCRIPT_URL, {
@@ -130,11 +131,17 @@ app.post('/api/movimentar', async (req, res) => {
       people: [{
         cpf: cpf,
         personName: nome || 'Desconhecido',
+        colegio: colegio || '',
+        turma: turma || '',
         tipo: novaLocalizacao,
         movimentacao: novaLocalizacao,
         timestamp: new Date().toISOString(),
         confidence: 100,
         operadorNome: 'Painel Web',
+        inicio_viagem: inicioViagem || '',
+        inicioViagem: inicioViagem || '',
+        fim_viagem: fimViagem || '',
+        fimViagem: fimViagem || '',
         updated_at: new Date().toISOString()
       }]
     }, {
@@ -150,6 +157,8 @@ app.post('/api/movimentar', async (req, res) => {
       data: {
         cpf,
         novaLocalizacao,
+        inicioViagem,
+        fimViagem,
         timestamp: new Date().toISOString()
       }
     });

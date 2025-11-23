@@ -1,6 +1,9 @@
 // ============================================================================
-// PAINEL DE LOCALIZAÇÃO - ELLUS (VERSÃO ROBUSTA)
+// PAINEL DE LOCALIZAÇÃO - ELLUS (VERSÃO ROBUSTA + ESCALÁVEL)
 // ============================================================================
+
+// Configurações de paginação
+const ITENS_POR_PAGINA = 50; // Renderiza máximo de 50 cards por painel
 
 // Estado da aplicação
 let todasPessoas = [];
@@ -8,6 +11,14 @@ let viagensSelecionada = '';
 let autoRefreshInterval = null;
 let termoPesquisa = '';
 let alunoSelecionado = null;
+let debounceTimer = null;
+
+// Estado de paginação para cada painel
+const paginacao = {
+  quarto: { paginaAtual: 1 },
+  fora: { paginaAtual: 1 },
+  balada: { paginaAtual: 1 }
+};
 
 // Elementos do DOM
 const elements = {
@@ -45,8 +56,16 @@ async function init() {
     renderizarPainel();
   });
   elements.inputPesquisa.addEventListener('input', (e) => {
-    termoPesquisa = e.target.value.toLowerCase().trim();
-    renderizarPainel();
+    // Debounce para performance com muitos alunos
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      termoPesquisa = e.target.value.toLowerCase().trim();
+      // Reset paginação ao pesquisar
+      paginacao.quarto.paginaAtual = 1;
+      paginacao.fora.paginaAtual = 1;
+      paginacao.balada.paginaAtual = 1;
+      renderizarPainel();
+    }, 300); // Aguarda 300ms após usuário parar de digitar
   });
 
   // Fechar modal ao clicar fora
@@ -243,7 +262,7 @@ function atualizarEstatisticas(categorias, total) {
 }
 
 /**
- * Renderizar lista de alunos
+ * Renderizar lista de alunos COM PAGINAÇÃO
  */
 function renderizarLista(container, pessoas, countElement, categoria) {
   container.innerHTML = '';
@@ -254,13 +273,98 @@ function renderizarLista(container, pessoas, countElement, categoria) {
     return;
   }
 
-  pessoas.forEach(pessoa => {
+  // Determinar chave de paginação
+  const chavePaginacao = categoria === 'QUARTO' ? 'quarto' :
+                         categoria === 'FORA_DO_QUARTO' ? 'fora' : 'balada';
+
+  const paginaAtual = paginacao[chavePaginacao].paginaAtual;
+  const totalPaginas = Math.ceil(pessoas.length / ITENS_POR_PAGINA);
+
+  // Calcular índices para paginação
+  const indiceInicio = (paginaAtual - 1) * ITENS_POR_PAGINA;
+  const indiceFim = Math.min(indiceInicio + ITENS_POR_PAGINA, pessoas.length);
+  const pessoasPaginadas = pessoas.slice(indiceInicio, indiceFim);
+
+  console.log(`📄 [${categoria}] Renderizando página ${paginaAtual}/${totalPaginas} (${pessoasPaginadas.length} de ${pessoas.length} alunos)`);
+
+  // Renderizar cards da página atual
+  pessoasPaginadas.forEach(pessoa => {
     const card = criarCardAluno(pessoa, categoria);
     container.appendChild(card);
   });
 
+  // Adicionar controles de paginação se necessário
+  if (totalPaginas > 1) {
+    const paginacaoControls = criarControlesPaginacao(
+      chavePaginacao,
+      paginaAtual,
+      totalPaginas,
+      pessoas.length,
+      indiceInicio,
+      indiceFim
+    );
+    container.appendChild(paginacaoControls);
+  }
+
   // Configurar drag & drop
   configurarDragAndDrop(container);
+}
+
+/**
+ * Criar controles de paginação
+ */
+function criarControlesPaginacao(chavePaginacao, paginaAtual, totalPaginas, totalItens, inicio, fim) {
+  const controls = document.createElement('div');
+  controls.className = 'paginacao-controls';
+
+  // Informação da página
+  const info = document.createElement('div');
+  info.className = 'paginacao-info';
+  info.textContent = `Exibindo ${inicio + 1}-${fim} de ${totalItens} alunos`;
+
+  // Botões de navegação
+  const btnContainer = document.createElement('div');
+  btnContainer.className = 'paginacao-btns';
+
+  // Botão Anterior
+  const btnAnterior = document.createElement('button');
+  btnAnterior.className = 'btn-paginacao';
+  btnAnterior.textContent = '← Anterior';
+  btnAnterior.disabled = paginaAtual === 1;
+  btnAnterior.onclick = (e) => {
+    e.stopPropagation();
+    if (paginaAtual > 1) {
+      paginacao[chavePaginacao].paginaAtual--;
+      renderizarPainel();
+    }
+  };
+
+  // Indicador de página
+  const indicador = document.createElement('span');
+  indicador.className = 'paginacao-indicador';
+  indicador.textContent = `${paginaAtual} / ${totalPaginas}`;
+
+  // Botão Próxima
+  const btnProxima = document.createElement('button');
+  btnProxima.className = 'btn-paginacao';
+  btnProxima.textContent = 'Próxima →';
+  btnProxima.disabled = paginaAtual === totalPaginas;
+  btnProxima.onclick = (e) => {
+    e.stopPropagation();
+    if (paginaAtual < totalPaginas) {
+      paginacao[chavePaginacao].paginaAtual++;
+      renderizarPainel();
+    }
+  };
+
+  btnContainer.appendChild(btnAnterior);
+  btnContainer.appendChild(indicador);
+  btnContainer.appendChild(btnProxima);
+
+  controls.appendChild(info);
+  controls.appendChild(btnContainer);
+
+  return controls;
 }
 
 /**
@@ -446,16 +550,27 @@ async function moverAluno(cpf, nome, novaLocalizacao) {
     console.log(`📍 Movendo ${nome} para ${novaLocalizacao}...`);
     mostrarToast('Movimentando aluno...', 'info');
 
+    // Buscar dados completos do aluno
+    const pessoa = todasPessoas.find(p => p.cpf === cpf);
+
+    const payload = {
+      cpf: cpf,
+      nome: nome,
+      novaLocalizacao: novaLocalizacao,
+      colegio: pessoa?.colegio || '',
+      turma: pessoa?.turma || '',
+      inicioViagem: pessoa?.inicio_viagem || '',
+      fimViagem: pessoa?.fim_viagem || ''
+    };
+
+    console.log('📦 Enviando payload:', payload);
+
     const response = await fetch('/api/movimentar', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        cpf: cpf,
-        nome: nome,
-        novaLocalizacao: novaLocalizacao
-      })
+      body: JSON.stringify(payload)
     });
 
     const data = await response.json();
@@ -465,7 +580,6 @@ async function moverAluno(cpf, nome, novaLocalizacao) {
       mostrarToast(`${nome} movido para ${formatarLocalizacao(novaLocalizacao)}`, 'success');
 
       // Atualizar dados localmente
-      const pessoa = todasPessoas.find(p => p.cpf === cpf);
       if (pessoa) {
         pessoa.movimentacao = novaLocalizacao;
       }
