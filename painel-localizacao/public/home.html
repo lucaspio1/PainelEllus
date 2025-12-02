@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Menu Principal - Ellus</title>
+  <!-- Adicionei ?v=3 para forçar o navegador a recarregar o CSS -->
+  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="home-body">
+
+  <div class="home-wrapper">
+    
+    <!-- Topo Estilizado -->
+    <header class="home-header-area">
+      <div class="logo-area">
+        <img src="icon.png" alt="Ellus" style="height: 50px;">
+      </div>
+      <div class="operator-area">
+        <span id="nomeOperador">Olá, Usuário</span>
+        <button class="btn btn-sm btn-logout" onclick="logout()" style="margin-left: 10px;">
+          <i class="fas fa-sign-out-alt"></i> Sair
+        </button>
+      </div>
+    </header>
+
+    <!-- Grid de Menus (Centralizado e Bonito) -->
+    <div class="home-menu-grid">
+      
+      <!-- Botão 1: Quartos -->
+      <a href="/quartos" class="menu-card">
+        <div class="menu-icon-box icon-bed">
+          <i class="fas fa-bed"></i>
+        </div>
+        <h2 class="menu-title">Controle de Quartos</h2>
+        <p class="menu-desc">Gerenciar localização dos alunos, visualização de quartos e status (Quarto, Fora, Balada).</p>
+        <div class="menu-arrow">
+          <i class="fas fa-arrow-right"></i> Acessar
+        </div>
+      </a>
+
+      <!-- Botão 2: Embarque -->
+      <a href="/embarque" class="menu-card">
+        <div class="menu-icon-box icon-bus">
+          <i class="fas fa-bus-alt"></i>
+        </div>
+        <h2 class="menu-title">Controle de Embarque</h2>
+        <p class="menu-desc">Listas de passageiros filtradas por data, status de embarque e agrupamento por colégio.</p>
+        <div class="menu-arrow">
+          <i class="fas fa-arrow-right"></i> Acessar
+        </div>
+      </a>
+
+    </div>
+
+    <footer style="color: #888; font-size: 0.8rem; margin-top: 20px;">
+        Ellus Turismo &copy; 2025
+    </footer>
+
+  </div>
+
+  <script>
+    // Verifica Login
+    const user = localStorage.getItem('painel_user');
+    if (!user) window.location.href = '/login';
+    
+    try {
+        const userData = JSON.parse(user);
+        document.getElementById('nomeOperador').textContent = `👋 ${userData.nome || 'Usuário'}`;
+    } catch(e) {
+        console.error(e);
+    }
+
+    function logout() {
+      if(confirm('Sair do sistema?')) {
+        localStorage.removeItem('painel_user');
+        window.location.href = '/login';
+      }
+    }
+  </script>
+</body>
+</html>

@@ -5,27 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Painel Ellus - Gestão de Alunos</title>
   <link rel="stylesheet" href="style.css">
-  <!-- FontAwesome -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
-
   <div class="app-container">
-    
     <!-- Top Bar -->
     <header class="top-bar">
-      <div class="logo-area">
-        <!-- Logo da Empresa -->
-        <img src="icon.png" alt="Ellus Turismo" class="logo-img">
-        <!-- Opcional: Remover o texto se o logo já contiver o nome, ou manter estilizado -->
-        <!-- <h1>Painel Ellus</h1> -->
+      <div class="logo-area" style="cursor:pointer" onclick="window.location.href='/home'">
+        <i class="fas fa-arrow-left"></i> Voltar
       </div>
       
       <div class="operator-area">
         <span id="nomeOperadorDisplay" class="operator-name">Olá, Visitante</span>
-        <button id="btnOperador" class="btn btn-sm btn-outline" title="Trocar usuário">
-          <i class="fas fa-user-edit"></i>
-        </button>
+        <!-- O botão de logout será removido daqui pois já tem na home, mas mantemos para funcionalidade -->
       </div>
 
       <div class="controls-area">
@@ -34,22 +26,14 @@
             <option value="">Todas as Viagens</option>
           </select>
         </div>
-        
         <div class="control-item">
           <input type="text" id="inputPesquisa" class="form-input" placeholder="Nome, CPF ou Quarto...">
         </div>
-
         <div class="control-actions">
-          <button id="btnAtualizar" class="btn btn-primary" title="Atualizar Dados">
-            <i class="fas fa-sync-alt"></i>
-          </button>
-          
-          <button id="btnToggleView" class="btn btn-secondary">
-            <i class="fas fa-th"></i> 🏨 Visualizar Quartos
-          </button>
+          <button id="btnAtualizar" class="btn btn-primary" title="Atualizar Dados"><i class="fas fa-sync-alt"></i></button>
+          <button id="btnToggleView" class="btn btn-secondary"><i class="fas fa-th"></i> 🏨 Quartos</button>
         </div>
       </div>
-      
       <div class="info-area">
         <small id="ultimaAtualizacao">Atualizando...</small>
       </div>
@@ -57,105 +41,46 @@
 
     <!-- Stats Bar -->
     <section class="stats-bar">
-      <div class="stat-box">
-        <span class="stat-val" id="totalAlunos">0</span>
-        <span class="stat-label">Total</span>
-      </div>
-      <div class="stat-box s-quarto">
-        <span class="stat-val" id="totalQuarto">0</span>
-        <span class="stat-label">No Quarto</span>
-      </div>
-      <div class="stat-box s-fora">
-        <span class="stat-val" id="totalFora">0</span>
-        <span class="stat-label">Fora</span>
-      </div>
-      <div class="stat-box s-balada">
-        <span class="stat-val" id="totalBalada">0</span>
-        <span class="stat-label">Balada</span>
-      </div>
+      <div class="stat-box"><span class="stat-val" id="totalAlunos">0</span><span class="stat-label">Total</span></div>
+      <div class="stat-box s-quarto"><span class="stat-val" id="totalQuarto">0</span><span class="stat-label">No Quarto</span></div>
+      <div class="stat-box s-fora"><span class="stat-val" id="totalFora">0</span><span class="stat-label">Fora</span></div>
+      <div class="stat-box s-balada"><span class="stat-val" id="totalBalada">0</span><span class="stat-label">Balada</span></div>
     </section>
 
     <!-- Conteúdo Principal -->
     <main class="main-content">
-      
-      <!-- VIEW 1: Colunas de Status -->
       <div id="viewStatus" class="view-columns">
-        
         <div class="column col-quarto">
-          <div class="col-header">
-            <h2><i class="fas fa-bed"></i> No Quarto</h2>
-            <span class="badge-count" id="countQuarto">0</span>
-          </div>
+          <div class="col-header"><h2><i class="fas fa-bed"></i> No Quarto</h2><span class="badge-count" id="countQuarto">0</span></div>
           <div class="col-body" id="listaQuarto"></div>
         </div>
-
         <div class="column col-fora">
-          <div class="col-header">
-            <h2><i class="fas fa-walking"></i> Fora do Quarto</h2>
-            <span class="badge-count" id="countFora">0</span>
-          </div>
+          <div class="col-header"><h2><i class="fas fa-walking"></i> Fora</h2><span class="badge-count" id="countFora">0</span></div>
           <div class="col-body" id="listaFora"></div>
         </div>
-
         <div class="column col-balada">
-          <div class="col-header">
-            <h2><i class="fas fa-music"></i> Na Balada</h2>
-            <span class="badge-count" id="countBalada">0</span>
-          </div>
+          <div class="col-header"><h2><i class="fas fa-music"></i> Balada</h2><span class="badge-count" id="countBalada">0</span></div>
           <div class="col-body" id="listaBalada"></div>
         </div>
-
       </div>
-
-      <!-- VIEW 2: Grid de Quartos -->
       <div id="viewQuartos" class="view-grid hidden"></div>
-
     </main>
-
   </div>
 
-  <!-- Modal de Detalhes -->
+  <!-- Modal e Helpers -->
   <div id="modalDetalhes" class="modal-overlay">
     <div class="modal-box">
-      <div class="modal-header">
-        <h3>Detalhes do Aluno</h3>
-        <button class="btn-close" onclick="fecharModal()">&times;</button>
-      </div>
+      <div class="modal-header"><h3>Detalhes</h3><button class="btn-close" onclick="fecharModal()">&times;</button></div>
       <div class="modal-body">
-        <div class="profile-header">
-          <h2 id="detalheNome">--</h2>
-          <span id="detalheStatus" class="badge">--</span>
-        </div>
-        <div class="profile-info">
-          <p><strong>CPF:</strong> <span id="detalheCpf">--</span></p>
-          <p><strong>Quarto:</strong> <span id="detalheQuarto">--</span></p>
-          <p><strong>Info:</strong> <span id="detalheInfo">--</span></p>
-        </div>
-        
-        <div class="quick-actions">
-          <p>Mover para:</p>
-          <div class="btn-group">
-            <button class="btn btn-sm btn-green" onclick="moverNoModal('VOLTOU_AO_QUARTO')">Quarto</button>
-            <button class="btn btn-sm btn-orange" onclick="moverNoModal('SAIU_DO_QUARTO')">Fora</button>
-            <button class="btn btn-sm btn-purple" onclick="moverNoModal('FOI_PARA_BALADA')">Balada</button>
-          </div>
-        </div>
-
-        <div class="history-section">
-          <h4>Histórico</h4>
-          <div id="listaHistorico" class="history-list"></div>
-        </div>
+        <h2 id="detalheNome">--</h2><span id="detalheStatus" class="badge">--</span>
+        <div class="profile-info"><p><strong>CPF:</strong> <span id="detalheCpf">--</span></p><p><strong>Quarto:</strong> <span id="detalheQuarto">--</span></p><p><strong>Info:</strong> <span id="detalheInfo">--</span></p></div>
+        <div class="quick-actions"><p>Mover para:</p><div class="btn-group"><button class="btn btn-sm btn-green" onclick="moverNoModal('VOLTOU_AO_QUARTO')">Quarto</button><button class="btn btn-sm btn-orange" onclick="moverNoModal('SAIU_DO_QUARTO')">Fora</button><button class="btn btn-sm btn-purple" onclick="moverNoModal('FOI_PARA_BALADA')">Balada</button></div></div>
+        <div class="history-section"><h4>Histórico</h4><div id="listaHistorico" class="history-list"></div></div>
       </div>
     </div>
   </div>
-
-  <!-- UI Helpers -->
-  <div id="loadingOverlay" class="loading-overlay">
-    <div class="spinner"></div>
-    <p>Carregando...</p>
-  </div>
+  <div id="loadingOverlay" class="loading-overlay"><div class="spinner"></div><p>Carregando...</p></div>
   <div id="toastContainer" class="toast-container"></div>
-
   <script src="app.js"></script>
 </body>
 </html>

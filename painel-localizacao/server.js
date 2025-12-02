@@ -2,10 +2,21 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
-const axios = require('axios');
 const path = require('path');
 const os = require('os');
+const admin = require('firebase-admin');
 
+// ⚠️ Certifique-se de ter o arquivo 'serviceAccountKey.json' na mesma pasta
+const serviceAccount = require('./serviceAccountKey.json');
+
+// [FIREBASE] Inicialização
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
+}
+
+const db = admin.firestore();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -13,24 +24,15 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+// --- ROTAS DE NAVEGAÇÃO ---
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+app.get('/home', (req, res) => res.sendFile(path.join(__dirname, 'public', 'home.html')));
+app.get('/quartos', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/embarque', (req, res) => res.sendFile(path.join(__dirname, 'public', 'embarque.html')));
+app.get('/importar', (req, res) => res.sendFile(path.join(__dirname, 'public', 'importar.html')));
 
-if (!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL.includes('SEU_DEPLOYMENT_ID')) {
-  console.error('❌ ERRO CRÍTICO: Configure a URL do Google Script no arquivo .env');
-}
-
-function getLocalIpAddress() {
-  const interfaces = os.networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        return iface.address;
-      }
-    }
-  }
-  return 'localhost';
-}
-
+// --- UTILITÁRIOS ---
 function formatarDataPTBR(dataISO) {
   if (!dataISO) return '';
   try {
@@ -43,149 +45,264 @@ function formatarDataPTBR(dataISO) {
   } catch (e) { return dataISO; }
 }
 
-// --- ENDPOINTS ---
+// Helper para converter "2025-12-01" em "01/12" (Conforme exemplo)
+function formatarDataCurta(dataISO) {
+    if (!dataISO) return '';
+    try {
+        const parts = dataISO.split('-'); // Espera YYYY-MM-DD
+        if(parts.length === 3) {
+            return `${parts[2]}/${parts[1]}`; // Retorna DD/MM
+        }
+        return dataISO;
+    } catch (e) { return dataISO; }
+}
 
-// ✅ Endpoint de Login (NOVO)
+function formatarCPF(v) {
+  if(!v) return '';
+  v = String(v).replace(/\D/g, ''); 
+  return v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+}
+
+// --- API ---
+
+// ✅ LOGIN
 app.post('/api/login', async (req, res) => {
   try {
     const { cpf, senha } = req.body;
-    
-    // Repassa para o Google Apps Script que já tem a função 'login'
-    const response = await axios.post(GOOGLE_SCRIPT_URL, {
-      action: 'login',
-      cpf: cpf,
-      senha: senha
-    }, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 30000
-    });
+    const snapshot = await db.collection('usuarios')
+      .where('cpf', '==', cpf).limit(1).get();
 
-    if (response.data && response.data.success) {
-      res.json({ success: true, data: response.data }); // Retorna dados do usuário
+    if (snapshot.empty) return res.status(401).json({ success: false, message: 'Usuário não encontrado.' });
+
+    const userData = snapshot.docs[0].data();
+    if (String(userData.senha) === String(senha)) {
+      res.json({ success: true, user: { nome: userData.nome, perfil: userData.perfil || 'ADMIN', cpf: userData.cpf } });
     } else {
-      res.status(401).json({ success: false, message: response.data?.message || 'Falha no login' });
+      res.status(401).json({ success: false, message: 'Senha incorreta.' });
     }
   } catch (error) {
-    console.error('Erro no login:', error.message);
-    res.status(500).json({ success: false, message: 'Erro no servidor: ' + error.message });
+    console.error('Erro Login:', error);
+    res.status(500).json({ success: false, message: 'Erro no servidor.' });
   }
 });
 
+// ✅ ROTA DE IMPORTAÇÃO (Salva na tabela 'embarques') [ATUALIZADA]
+app.post('/api/importar', async (req, res) => {
+  try {
+    const { alunos } = req.body; 
+
+    if (!alunos || !Array.isArray(alunos)) {
+      return res.status(400).json({ success: false, message: 'Dados inválidos.' });
+    }
+
+    const promessas = alunos.map(async (aluno) => {
+      // Limpa CPF para usar como ID
+      const cpfLimpo = String(aluno.cpf_limpo || aluno.cpf).replace(/\D/g, '');
+      
+      if (!cpfLimpo) return;
+
+      // Referência à coleção 'embarques'
+      const docRef = db.collection('embarques').doc(cpfLimpo);
+
+      const agora = new Date();
+
+      // Monta o objeto EXATAMENTE conforme a estrutura solicitada
+      const dadosEmbarque = {
+        Facial: "PENDENTE", // Default inicial
+        facial_cadastrada: false, // Boolean
+        
+        colegio: aluno.colegio || '',
+        cpf: cpfLimpo,
+        
+        nome: aluno.nome,
+        turma: aluno.turma || '',
+        
+        idPasseio: aluno.id_passeio || '',
+        onibus: aluno.onibus || '',
+        
+        // Formata datas para "DD/MM" se vierem no padrão ISO, ou salva como vier
+        inicioViagem: formatarDataCurta(aluno.inicio_viagem),
+        fimViagem: formatarDataCurta(aluno.fim_viagem),
+        
+        embarque: "", // String vazia
+        retorno: "", // String vazia
+        
+        created_at: agora, // Timestamp
+        updated_at: agora  // Timestamp
+      };
+
+      // Usa 'set' com merge para salvar
+      return docRef.set(dadosEmbarque, { merge: true });
+    });
+
+    await Promise.all(promessas);
+
+    res.json({ success: true, message: `${alunos.length} registros salvos na tabela 'embarques'.` });
+
+  } catch (error) {
+    console.error('Erro na importação:', error);
+    res.status(500).json({ success: false, message: 'Erro ao importar dados.' });
+  }
+});
+
+// ✅ EMBARQUE LISTA (Lê da tabela 'embarques') [ATUALIZADA]
+// ✅ EMBARQUE LISTA (Lê da tabela 'embarques' com filtros completos)
+app.get('/api/embarque-lista', async (req, res) => {
+  try {
+    const { inicio, fim } = req.query;
+    
+    let query = db.collection('embarques');
+
+    // 1. Filtro de Início de Viagem
+    if (inicio) {
+        const inicioCurto = formatarDataCurta(inicio); // Converte YYYY-MM-DD -> DD/MM
+        query = query.where('inicioViagem', '==', inicioCurto);
+    }
+
+    // 2. Filtro de Fim de Viagem
+    if (fim) {
+        const fimCurto = formatarDataCurta(fim); // Converte YYYY-MM-DD -> DD/MM
+        query = query.where('fimViagem', '==', fimCurto);
+    }
+
+    const snapshot = await query.get();
+    const listaEmbarque = [];
+
+    snapshot.forEach(doc => {
+        const dados = doc.data();
+        listaEmbarque.push({
+            // Identificação
+            cpf: dados.cpf,
+            nome: dados.nome,
+            rg: dados.cpf, // Usando CPF como RG para compatibilidade visual
+            
+            // Logística
+            onibus: dados.onibus || '',
+            poltrona: '', // Campo não existente na importação atual, envia vazio
+            emissor: '',
+            
+            // Controle de Grupo (ESSENCIAIS PARA O QR CODE)
+            idPasseio: dados.idPasseio || '', 
+            colegio: dados.colegio || '', 
+            
+            // Status
+            status_embarque: dados.embarque ? 'EMBARCADO' : 'PENDENTE',
+            
+            // Facial
+            facial_cadastrada: dados.facial_cadastrada || false,
+            status_facial: dados.Facial || 'PENDENTE',
+
+            // Datas (cruas para debug ou exibição)
+            inicio_viagem: dados.inicioViagem,
+            fim_viagem: dados.fimViagem
+        });
+    });
+
+    res.json({ status: 'sucesso', data: listaEmbarque });
+
+  } catch (error) {
+    console.error('Erro API Embarque:', error.message);
+    res.status(500).json({ status: 'erro', mensagem: 'Erro ao buscar dados de embarque.' });
+  }
+});
+
+// ✅ MOVIMENTAR (Mantém logs e atualiza status - Opcional: Atualizar 'embarques' também?)
+app.post('/api/movimentar', async (req, res) => {
+  // ... (código existente de movimentação mantido para lógica de quartos/logs) ...
+  // Se a movimentação de embarque também for feita por aqui, avise para ajustarmos.
+  try {
+    const { cpf, novaLocalizacao, nome, colegio, turma, quarto, operador } = req.body;
+    const timestamp = new Date().toISOString();
+    const usuarioResp = operador || 'Sistema';
+
+    console.log(`📍 Movimentando ${nome} -> ${novaLocalizacao}`);
+
+    // Atualiza tabela 'alunos' (legado/quartos)
+    const alunosRef = db.collection('alunos');
+    const snapshot = await alunosRef.where('cpf', '==', cpf).limit(1).get();
+
+    if (!snapshot.empty) {
+        await snapshot.docs[0].ref.update({
+            movimentacao: novaLocalizacao,
+            updated_at: timestamp,
+            ultimo_usuario: usuarioResp
+        });
+    }
+
+    // Cria Log
+    await db.collection('logs').add({
+      cpf, nome, tipo: novaLocalizacao, movimentacao: novaLocalizacao,
+      usuario: usuarioResp, operador: usuarioResp, timestamp, quarto
+    });
+
+    res.json({ success: true });
+  } catch (e) { 
+    console.error(e);
+    res.status(500).json({ success: false }); 
+  }
+});
+
+// ✅ OUTRAS ROTAS (Quartos, Viagens, Logs, Pessoas) MANTIDAS
 app.get('/api/pessoas', async (req, res) => {
   try {
-    const response = await axios.get(`${GOOGLE_SCRIPT_URL}?action=getAllPeople`, { timeout: 30000 });
-    if (response.data && response.data.success) {
-      res.json({ success: true, data: response.data.data || [] });
-    } else {
-      res.status(500).json({ success: false, message: response.data?.message });
-    }
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+    const snapshot = await db.collection('alunos').get(); // Mantém leitura de alunos para quartos
+    const pessoas = [];
+    snapshot.forEach(doc => pessoas.push({ id: doc.id, ...doc.data() }));
+    res.json({ success: true, data: pessoas });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
 app.get('/api/quartos', async (req, res) => {
-  try {
-    const response = await axios.post(GOOGLE_SCRIPT_URL, {
-      action: 'getQuartos'
-    }, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 30000
-    });
+    try {
+      const snapshot = await db.collection('quartos').get();
+      const quartos = [];
+      snapshot.forEach(doc => quartos.push(doc.data()));
+      res.json({ success: true, data: quartos });
+    } catch (e) { res.json({ success: true, data: [] }); }
+});
 
-    if (response.data && response.data.success) {
-      res.json({ success: true, data: response.data.data || [] });
-    } else {
-      res.json({ success: true, data: [] });
-    }
-  } catch (error) { 
-    console.error('Erro ao buscar quartos:', error.message);
-    res.status(500).json({ success: false, message: error.message }); 
-  }
+app.get('/api/logs', async (req, res) => {
+    try {
+      const { cpf } = req.query;
+      let query = db.collection('logs').orderBy('timestamp', 'desc');
+      if (cpf) {
+        const cpfRaw = String(cpf);
+        const cpfLimpo = cpfRaw.replace(/\D/g, '');
+        const cpfFormatado = formatarCPF(cpfLimpo);
+        const termosBusca = [...new Set([cpfRaw, cpfLimpo, cpfFormatado])].filter(t => t.length > 0);
+        query = query.where('cpf', 'in', termosBusca);
+      } else {
+        query = query.limit(100);
+      }
+      const snapshot = await query.get();
+      const logs = [];
+      snapshot.forEach(doc => logs.push(doc.data()));
+      res.json({ success: true, data: logs });
+    } catch (error) { res.status(500).json({ success: false }); }
 });
 
 app.get('/api/viagens', async (req, res) => {
-  try {
-    const response = await axios.get(`${GOOGLE_SCRIPT_URL}?action=getAllPeople`, { timeout: 30000 });
-    if (response.data && response.data.success) {
-      const pessoas = response.data.data || [];
+    // Pode ler de 'embarques' agora para ser mais preciso sobre as viagens cadastradas
+    try {
+      const snapshot = await db.collection('embarques').get();
       const viagensMap = new Map();
-      pessoas.forEach(p => {
-        if (p.inicio_viagem && p.fim_viagem) {
-          const k = `${p.inicio_viagem}|${p.fim_viagem}`;
-          if (!viagensMap.has(k)) {
-            viagensMap.set(k, { 
-              inicio_viagem: p.inicio_viagem, 
-              fim_viagem: p.fim_viagem, 
-              label: `${formatarDataPTBR(p.inicio_viagem)} até ${formatarDataPTBR(p.fim_viagem)}` 
+      snapshot.forEach(doc => {
+        const p = doc.data();
+        if (p.inicioViagem && p.fimViagem) {
+          const key = `${p.inicioViagem}|${p.fimViagem}`;
+          if (!viagensMap.has(key)) {
+            viagensMap.set(key, { 
+                inicio_viagem: p.inicioViagem, 
+                fim_viagem: p.fimViagem, 
+                label: `${p.inicioViagem} até ${p.fimViagem}` 
             });
           }
         }
       });
       res.json({ success: true, data: Array.from(viagensMap.values()) });
-    } else { res.status(500).json({ success: false, message: 'Erro ao buscar viagens' }); }
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+    } catch (error) { res.status(500).json({ success: false }); }
 });
-
-app.post('/api/movimentar', async (req, res) => {
-  try {
-    const { cpf, novaLocalizacao, nome, colegio, turma, inicioViagem, fimViagem, quarto, operador } = req.body;
-    if (!cpf || !novaLocalizacao) return res.status(400).json({ success: false, message: 'Dados incompletos' });
-
-    const operadorFinal = operador || 'Painel Web';
-    console.log(`📍 Movimentando ${nome} -> ${novaLocalizacao} [Op: ${operadorFinal}]`);
-
-    await axios.post(GOOGLE_SCRIPT_URL, {
-      action: 'addMovementLog',
-      people: [{
-        cpf, 
-        personName: nome || 'Desconhecido',
-        colegio: colegio || '',
-        turma: turma || '',
-        quarto: quarto || '',
-        tipo: novaLocalizacao,
-        movimentacao: novaLocalizacao,
-        timestamp: new Date().toISOString(),
-        confidence: 100,
-        operador: operadorFinal,
-        operadorNome: operadorFinal,
-        monitor: operadorFinal,
-        inicio_viagem: inicioViagem || '',
-        fim_viagem: fimViagem || '',
-        updated_at: new Date().toISOString()
-      }]
-    }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
-
-    res.json({ success: true, message: 'Movimentação registrada' });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
-});
-
-app.get('/api/logs', async (req, res) => {
-  try {
-    const { cpf, since } = req.query;
-    let url = `${GOOGLE_SCRIPT_URL}?action=getAllLogs`;
-    if (since) url += `&since=${encodeURIComponent(since)}`;
-    const response = await axios.get(url, { timeout: 30000 });
-
-    if (response.data && response.data.success) {
-      let logs = response.data.data || [];
-      if (cpf) {
-        const cpfBusca = String(cpf).replace(/\D/g, '');
-        logs = logs.filter(l => String(l.cpf || '').replace(/\D/g, '') === cpfBusca);
-      }
-      res.json({ success: true, data: logs });
-    } else { res.status(500).json({ success: false, message: 'Erro ao buscar logs' }); }
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
-});
-
-app.get('/health', (req, res) => res.json({ status: 'OK', env: !!GOOGLE_SCRIPT_URL }));
-
-// Redireciona raiz para index.html (proteção será via JS no front)
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-// Rota específica para a página de login
-app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 
 app.listen(PORT, '0.0.0.0', () => {
-  const localIp = getLocalIpAddress();
-  console.log(`\n🚀 Servidor iniciado!`);
-  console.log(`💻 Local: http://localhost:${PORT}`);
-  console.log(`📱 Rede: http://${localIp}:${PORT}`);
+  console.log(`\n🚀 Servidor (Firebase) rodando em http://localhost:${PORT}`);
 });

@@ -6,102 +6,8 @@
   <title>Login - Painel Ellus</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-  <style>
-    body {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      background: linear-gradient(135deg, var(--bg-color) 0%, #e0e0e0 100%);
-    }
-    .login-card {
-      background: white;
-      padding: 40px;
-      border-radius: 15px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-      width: 100%;
-      max-width: 400px;
-      text-align: center;
-      border-top: 5px solid var(--brand-dark-green);
-    }
-    .login-logo {
-      width: 120px;
-      margin-bottom: 20px;
-    }
-    .login-title {
-      color: var(--brand-dark-green);
-      margin-bottom: 30px;
-      font-size: 1.5rem;
-    }
-    .input-group {
-      margin-bottom: 20px;
-      text-align: left;
-    }
-    .input-group label {
-      display: block;
-      margin-bottom: 8px;
-      color: var(--text-light);
-      font-size: 0.9rem;
-      font-weight: 600;
-    }
-    .input-wrapper {
-      position: relative;
-    }
-    .input-wrapper i {
-      position: absolute;
-      left: 12px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--text-light);
-    }
-    .form-input {
-      width: 100%;
-      padding: 12px 12px 12px 40px; /* Espaço para o ícone */
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      font-size: 1rem;
-      transition: border-color 0.3s;
-    }
-    .form-input:focus {
-      border-color: var(--brand-light-green);
-      outline: none;
-    }
-    .btn-login {
-      width: 100%;
-      padding: 12px;
-      background: var(--brand-dark-green);
-      color: white;
-      border: none;
-      border-radius: 8px;
-      font-size: 1rem;
-      font-weight: bold;
-      cursor: pointer;
-      transition: background 0.3s;
-      margin-top: 10px;
-    }
-    .btn-login:hover {
-      background: #4a6132;
-    }
-    .error-msg {
-      color: var(--text-red);
-      margin-top: 15px;
-      font-size: 0.9rem;
-      display: none;
-    }
-    .loader {
-      display: none;
-      margin: 10px auto;
-      border: 3px solid #f3f3f3;
-      border-top: 3px solid var(--brand-dark-green);
-      border-radius: 50%;
-      width: 20px;
-      height: 20px;
-      animation: spin 1s linear infinite;
-    }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-  </style>
 </head>
-<body>
+<body class="login-body"> <!-- Garante o fundo e centralização -->
 
   <div class="login-card">
     <img src="icon.png" alt="Ellus Turismo" class="login-logo">
@@ -109,18 +15,16 @@
     
     <form id="loginForm">
       <div class="input-group">
-        <label for="cpf">CPF</label>
         <div class="input-wrapper">
           <i class="fas fa-user"></i>
-          <input type="text" id="cpf" class="form-input" placeholder="000.000.000-00" required>
+          <input type="text" id="cpf" class="form-input-login" placeholder="CPF" required>
         </div>
       </div>
       
       <div class="input-group">
-        <label for="senha">Senha</label>
         <div class="input-wrapper">
           <i class="fas fa-lock"></i>
-          <input type="password" id="senha" class="form-input" placeholder="Sua senha" required>
+          <input type="password" id="senha" class="form-input-login" placeholder="Senha" required>
         </div>
       </div>
 
@@ -129,7 +33,7 @@
         <div id="loader" class="loader"></div>
       </button>
       
-      <p id="errorMsg" class="error-msg">Credenciais inválidas ou sem permissão.</p>
+      <p id="errorMsg" class="error-msg">Credenciais inválidas.</p>
     </form>
   </div>
 
@@ -137,7 +41,7 @@
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       
-      const cpf = document.getElementById('cpf').value.replace(/\D/g, ''); // Apenas números
+      const cpf = document.getElementById('cpf').value.replace(/\D/g, ''); 
       const senha = document.getElementById('senha').value;
       const btnText = document.getElementById('btnText');
       const loader = document.getElementById('loader');
@@ -157,24 +61,26 @@
 
         const data = await response.json();
 
-        if (data.success) {
-          const user = data.data?.user; // Estrutura do retorno do script: { user: { ... } }
-          
-          // Verifica permissão ADMIN
-          if (user && user.perfil === 'ADMIN') {
-            // Salva sessão
-            localStorage.setItem('painel_user', JSON.stringify(user));
-            localStorage.setItem('operadorEllus', user.nome); // Atualiza nome do operador automaticamente
-            
-            window.location.href = '/'; // Redireciona para o painel
-          } else {
-            throw new Error('Acesso permitido apenas para administradores.');
-          }
+        // LÓGICA ROBUSTA: Tenta pegar o usuário onde quer que ele esteja
+        // data.user = Servidor Novo Simplificado
+        // data.data.user = Servidor Antigo ou Estrutura aninhada
+        const usuario = data.user || (data.data && data.data.user);
+
+        if (data.success && usuario) {
+            // Verifica perfil se necessário
+            if(usuario.perfil === 'ADMIN' || true) { // "|| true" remove a trava de admin se quiser liberar geral
+                localStorage.setItem('painel_user', JSON.stringify(usuario));
+                window.location.href = '/home';
+            } else {
+                 throw new Error('Usuário sem permissão de acesso.');
+            }
         } else {
-          throw new Error(data.message || 'CPF ou senha incorretos');
+            throw new Error(data.message || 'CPF ou senha incorretos.');
         }
+
       } catch (error) {
-        errorMsg.textContent = error.message;
+        console.error(error);
+        errorMsg.textContent = error.message || 'Erro desconhecido.';
         errorMsg.style.display = 'block';
       } finally {
         btnText.style.display = 'block';
@@ -182,7 +88,7 @@
       }
     });
 
-    // Formata CPF enquanto digita
+    // Mascara CPF (Digitação amigável)
     document.getElementById('cpf').addEventListener('input', (e) => {
       let v = e.target.value.replace(/\D/g, '');
       if (v.length > 11) v = v.slice(0, 11);

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Importar e Gerar QR - Painel Ellus</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  
+  <!-- LIBRARIAS NECESSÁRIAS -->
+  <!-- 1. Ler Excel -->
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <!-- 2. Gerar PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- 3. Gerar QR Code -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <style>
+    .import-container { max-width: 1000px; margin: 30px auto; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    
+    /* Upload e Forms */
+    .upload-area { border: 2px dashed #ccc; padding: 30px; text-align: center; border-radius: 8px; margin-bottom: 20px; cursor: pointer; transition: border-color 0.3s; }
+    .upload-area:hover { border-color: var(--brand-dark-green); background: #f9fdf9; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #eee; }
+    .form-group { display: flex; flex-direction: column; }
+    .form-group label { font-size: 0.85rem; font-weight: bold; margin-bottom: 5px; color: #555; }
+    .form-control { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
+    .full-width { grid-column: span 2; }
+    
+    /* Tabelas */
+    .preview-table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9rem; }
+    .preview-table th, .preview-table td { padding: 10px; border: 1px solid #eee; text-align: left; }
+    .preview-table th { background: #f4f4f4; color: #333; }
+    .btn-delete { color: #e74c3c; cursor: pointer; border: none; background: none; font-size: 1.1rem; }
+    
+    /* Seção de Impressão */
+    .print-section { margin-top: 40px; border-top: 2px dashed #eee; padding-top: 20px; }
+    .print-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 15px; margin-bottom: 20px; }
+    .print-controls { display: flex; align-items: center; gap: 15px; }
+
+    /* BOTÃO ANIMADO (TOGGLE SWITCH) - FACIAL */
+    .toggle-switch { position: relative; display: inline-block; width: 60px; height: 34px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
+    .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+    input:checked + .slider { background-color: var(--brand-dark-green); }
+    input:checked + .slider:before { transform: translateX(26px); }
+    .toggle-label { display: flex; flex-direction: column; align-items: center; gap: 5px; font-weight: bold; font-size: 0.8rem; color: #555;}
+
+    .actions-bar { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+
+  <header class="top-bar">
+    <div class="logo-area">
+      <img src="icon.png" alt="Ellus" class="logo-img">
+      <span style="font-weight:bold; margin-left:10px; color:var(--brand-dark-green)">Importação & QR Codes</span>
+    </div>
+    <div>
+        <a href="/home" class="btn btn-sm btn-outline"><i class="fas fa-home"></i> Voltar</a>
+    </div>
+  </header>
+
+  <div class="import-container">
+    <!-- ================= IMPORTAÇÃO ================= -->
+    <h2>📂 1. Importar Excel</h2>
+    
+    <input type="file" id="fileInput" accept=".xlsx, .xls" style="display: none;">
+    <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+      <i class="fas fa-file-excel" style="font-size: 2.5rem; color: #2e7d32;"></i>
+      <p style="margin-top:10px">Clique para selecionar o arquivo <strong>.XLSX</strong></p>
+    </div>
+
+    <!-- Campos Globais e Preview -->
+    <div id="globalFields" class="hidden">
+        <h3>📝 Dados da Importação</h3>
+        <div class="form-grid">
+            <div class="form-group full-width">
+                <label>Nome do Passeio (ID Passeio)</label>
+                <input type="text" id="inputPasseio" class="form-control" placeholder="Ex: PRAIA_2025_12_01">
+            </div>
+            <div class="form-group">
+                <label>Colégio</label>
+                <input type="text" id="inputColegio" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Ônibus</label>
+                <input type="text" id="inputOnibus" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Início Viagem</label>
+                <input type="date" id="inputInicio" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Fim Viagem</label>
+                <input type="date" id="inputFim" class="form-control">
+            </div>
+        </div>
+        
+        <!-- ÁREA DE PREVIEW (TABELA COMPLETA COM EXCLUSÃO) -->
+        <div id="previewArea" style="margin-top:20px; margin-bottom: 20px;">
+             <h3>Pré-visualização (<span id="totalLinhas">0</span> alunos)</h3>
+             <p style="font-size:0.8rem; color:#666;">Verifique a lista abaixo e exclua linhas indesejadas antes de confirmar.</p>
+             <div style="max-height: 400px; overflow: auto; border: 1px solid #eee; margin-top: 10px;">
+                <table class="preview-table">
+                    <thead>
+                        <tr>
+                            <th>Nome</th>
+                            <th>CPF</th>
+                            <th>Turma</th>
+                            <th style="text-align:center">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+             </div>
+        </div>
+
+        <div class="actions-bar">
+            <button class="btn btn-outline" onclick="limparImportacao()">Cancelar</button>
+            <button class="btn btn-primary" onclick="enviarDados()">
+                <i class="fas fa-save"></i> Confirmar Importação
+            </button>
+        </div>
+    </div>
+
+    <!-- ================= GERADOR DE QR CODE ================= -->
+    <div class="print-section">
+        <h2>🖨️ 2. Gerar QR Codes (PDF)</h2>
+        <p style="color:#666; margin-bottom:15px">Selecione os colégios importados para gerar os crachás.</p>
+
+        <div class="print-header">
+            <div class="form-group" style="flex:1">
+                <label>Filtrar por Data de Início:</label>
+                <div style="display:flex; gap:10px;">
+                    <input type="date" id="filterDataInicio" class="form-control">
+                    <button class="btn btn-secondary" onclick="buscarGrupos()">
+                        <i class="fas fa-search"></i> Buscar
+                    </button>
+                </div>
+            </div>
+            
+            <div class="print-controls">
+                <!-- BOTÃO ANIMADO FACIAL -->
+                <div class="toggle-label">
+                    <span>Facial?</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="checkFacial">
+                        <span class="slider"></span>
+                    </label>
+                    <span id="labelFacial">NÃO</span>
+                </div>
+
+                <button class="btn btn-primary" onclick="gerarPDFSelecionados()">
+                    <i class="fas fa-qrcode"></i> Gerar PDF
+                </button>
+            </div>
+        </div>
+
+        <table class="preview-table" id="tabelaGrupos">
+            <thead>
+                <tr>
+                    <th style="width: 40px;"><input type="checkbox" id="selectAll" onclick="toggleSelectAll()"></th>
+                    <th>Colégio</th>
+                    <th>Passeio</th>
+                    <th>Ônibus</th>
+                    <th>Data</th>
+                    <th>Qtd. Alunos</th>
+                </tr>
+            </thead>
+            <tbody id="listaGruposBody">
+                <tr><td colspan="6" style="text-align:center">Selecione uma data e clique em buscar.</td></tr>
+            </tbody>
+        </table>
+    </div>
+  </div>
+
+  <div id="loadingOverlay" class="loading-overlay hidden">
+    <div class="spinner"></div>
+    <p id="loadingText">Processando...</p>
+  </div>
+  
+  <div id="qr-code-generator" style="display:none;"></div>
+
+  <script src="importar.js"></script>
+</body>
+</html>

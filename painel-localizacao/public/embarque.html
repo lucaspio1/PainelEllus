@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Controle de Embarque - Ellus</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+
+  <div class="app-container">
+    
+    <!-- Header -->
+    <header class="top-bar">
+      <div class="logo-area" style="cursor: pointer;" onclick="window.location.href='/home'">
+        <i class="fas fa-arrow-left"></i> Voltar
+      </div>
+      
+      <div class="controls-area" style="justify-content: center; flex: 1;">
+        <h2><i class="fas fa-bus"></i> Controle de Embarque</h2>
+      </div>
+
+      <div class="operator-area">
+        <span id="totalPassageiros" class="badge badge-quarto">0 Alunos</span>
+      </div>
+    </header>
+
+    <!-- Filtros -->
+    <div class="filters-bar">
+      
+      <div class="date-selector">
+        <label>Data da Viagem:</label>
+        <div class="btn-group-date">
+            <button class="btn btn-date selected" id="btnHoje" onclick="selecionarData('hoje')">Hoje</button>
+            <button class="btn btn-date" id="btnAmanha" onclick="selecionarData('amanha')">Amanhã</button>
+            <input type="text" id="customDate" class="input-date-manual" placeholder="DD/MM">
+            <button class="btn btn-primary btn-sm" onclick="buscarPorDataManual()"><i class="fas fa-search"></i></button>
+        </div>
+      </div>
+
+      <div class="search-box">
+        <input type="text" id="searchEmbarque" class="form-input" placeholder="Buscar aluno, CPF ou ônibus...">
+      </div>
+
+    </div>
+
+    <!-- Lista (Acordeão) -->
+    <main class="main-content scroll-y">
+      <div id="loadingEmbarque" class="loading-spinner hidden">
+        <i class="fas fa-spinner fa-spin"></i> Carregando listas...
+      </div>
+      
+      <div id="listaEmbarqueContainer" class="accordion-container">
+        <!-- As escolas serão renderizadas aqui -->
+      </div>
+    </main>
+
+  </div>
+
+  <script src="embarque.js"></script>
+</body>
+</html>
