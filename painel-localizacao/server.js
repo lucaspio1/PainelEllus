@@ -124,10 +124,10 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// ✅ ROTA DE IMPORTAÇÃO (Salva na tabela 'embarques') [ATUALIZADA]
+// ✅ ROTA DE IMPORTAÇÃO (Salva nas tabelas 'embarques' e 'alunos')
 app.post('/api/importar', async (req, res) => {
   try {
-    const { alunos } = req.body; 
+    const { alunos } = req.body;
 
     if (!alunos || !Array.isArray(alunos)) {
       return res.status(400).json({ success: false, message: 'Dados inválidos.' });
@@ -136,46 +136,54 @@ app.post('/api/importar', async (req, res) => {
     const promessas = alunos.map(async (aluno) => {
       // Limpa CPF para usar como ID
       const cpfLimpo = String(aluno.cpf_limpo || aluno.cpf).replace(/\D/g, '');
-      
-      if (!cpfLimpo) return;
 
-      // Referência à coleção 'embarques'
-      const docRef = db.collection('embarques').doc(cpfLimpo);
+      if (!cpfLimpo) return;
 
       const agora = new Date();
 
-      // Monta o objeto EXATAMENTE conforme a estrutura solicitada
+      // Salva em 'embarques' (para controle de embarque/facial)
+      const embarqueRef = db.collection('embarques').doc(cpfLimpo);
       const dadosEmbarque = {
-        Facial: "PENDENTE", // Default inicial
-        facial_cadastrada: false, // Boolean
-        
+        Facial: "PENDENTE",
+        facial_cadastrada: false,
         colegio: aluno.colegio || '',
         cpf: cpfLimpo,
-        
         nome: aluno.nome,
+        nome_hospede: aluno.nome,
         turma: aluno.turma || '',
-        
         idPasseio: aluno.id_passeio || '',
         onibus: aluno.onibus || '',
-        
-        // Formata datas para "DD/MM" se vierem no padrão ISO, ou salva como vier
         inicioViagem: formatarDataCurta(aluno.inicio_viagem),
         fimViagem: formatarDataCurta(aluno.fim_viagem),
-        
-        embarque: "", // String vazia
-        retorno: "", // String vazia
-        
-        created_at: agora, // Timestamp
-        updated_at: agora  // Timestamp
+        embarque: "",
+        retorno: "",
+        created_at: agora,
+        updated_at: agora
       };
 
-      // Usa 'set' com merge para salvar
-      return docRef.set(dadosEmbarque, { merge: true });
+      // Salva em 'alunos' (para controle de quartos/movimentação)
+      const alunoRef = db.collection('alunos').doc(cpfLimpo);
+      const dadosAluno = {
+        colegio: aluno.colegio || '',
+        cpf: cpfLimpo,
+        nome_hospede: aluno.nome,
+        numero_quarto: aluno.quarto || aluno.numero_quarto || '',
+        inicio_viagem: formatarDataCurta(aluno.inicio_viagem),
+        fim_viagem: formatarDataCurta(aluno.fim_viagem),
+        movimentacao: 'QUARTO', // Status inicial
+        created_at: agora,
+        updated_at: agora
+      };
+
+      return Promise.all([
+        embarqueRef.set(dadosEmbarque, { merge: true }),
+        alunoRef.set(dadosAluno, { merge: true })
+      ]);
     });
 
     await Promise.all(promessas);
 
-    res.json({ success: true, message: `${alunos.length} registros salvos na tabela 'embarques'.` });
+    res.json({ success: true, message: `${alunos.length} registros salvos nas tabelas 'embarques' e 'alunos'.` });
 
   } catch (error) {
     console.error('Erro na importação:', error);
@@ -244,18 +252,19 @@ app.get('/api/embarque-lista', async (req, res) => {
   }
 });
 
-// ✅ MOVIMENTAR (Mantém logs e atualiza status - Opcional: Atualizar 'embarques' também?)
+// ✅ MOVIMENTAR (Mantém logs e atualiza status)
 app.post('/api/movimentar', async (req, res) => {
-  // ... (código existente de movimentação mantido para lógica de quartos/logs) ...
-  // Se a movimentação de embarque também for feita por aqui, avise para ajustarmos.
   try {
-    const { cpf, novaLocalizacao, nome, colegio, turma, quarto, operador } = req.body;
+    const { cpf, novaLocalizacao, nome, nome_hospede, colegio, turma, quarto, numero_quarto, operador } = req.body;
     const timestamp = new Date().toISOString();
     const usuarioResp = operador || 'Sistema';
 
-    console.log(`📍 Movimentando ${nome} -> ${novaLocalizacao}`);
+    const nomeAluno = nome_hospede || nome;
+    const numeroQuarto = numero_quarto || quarto;
 
-    // Atualiza tabela 'alunos' (legado/quartos)
+    console.log(`📍 Movimentando ${nomeAluno} -> ${novaLocalizacao}`);
+
+    // Atualiza tabela 'alunos'
     const alunosRef = db.collection('alunos');
     const snapshot = await alunosRef.where('cpf', '==', cpf).limit(1).get();
 
@@ -269,34 +278,83 @@ app.post('/api/movimentar', async (req, res) => {
 
     // Cria Log
     await db.collection('logs').add({
-      cpf, nome, tipo: novaLocalizacao, movimentacao: novaLocalizacao,
-      usuario: usuarioResp, operador: usuarioResp, timestamp, quarto
+      cpf,
+      nome: nomeAluno,
+      nome_hospede: nomeAluno,
+      tipo: novaLocalizacao,
+      movimentacao: novaLocalizacao,
+      usuario: usuarioResp,
+      operador: usuarioResp,
+      timestamp,
+      quarto: numeroQuarto,
+      numero_quarto: numeroQuarto
     });
 
     res.json({ success: true });
-  } catch (e) { 
+  } catch (e) {
     console.error(e);
-    res.status(500).json({ success: false }); 
+    res.status(500).json({ success: false });
   }
 });
 
 // ✅ OUTRAS ROTAS (Quartos, Viagens, Logs, Pessoas) MANTIDAS
 app.get('/api/pessoas', async (req, res) => {
   try {
-    const snapshot = await db.collection('alunos').get(); // Mantém leitura de alunos para quartos
+    const snapshot = await db.collection('alunos').get();
     const pessoas = [];
-    snapshot.forEach(doc => pessoas.push({ id: doc.id, ...doc.data() }));
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      pessoas.push({
+        id: doc.id,
+        cpf: data.cpf,
+        nome: data.nome_hospede || data.nome, // Suporta ambos os campos
+        nome_hospede: data.nome_hospede,
+        colegio: data.colegio,
+        turma: data.turma || '', // Opcional
+        quarto: data.numero_quarto || data.quarto,
+        numero_quarto: data.numero_quarto,
+        inicio_viagem: data.inicio_viagem,
+        fim_viagem: data.fim_viagem,
+        movimentacao: data.movimentacao || 'QUARTO',
+        created_at: data.created_at,
+        updated_at: data.updated_at
+      });
+    });
     res.json({ success: true, data: pessoas });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
 app.get('/api/quartos', async (req, res) => {
     try {
+      // Tenta ler da coleção 'quartos' primeiro
       const snapshot = await db.collection('quartos').get();
       const quartos = [];
-      snapshot.forEach(doc => quartos.push(doc.data()));
+
+      if (snapshot.empty) {
+        // Se não houver coleção 'quartos', extrai quartos únicos da coleção 'alunos'
+        const alunosSnapshot = await db.collection('alunos').get();
+        const quartosSet = new Set();
+
+        alunosSnapshot.forEach(doc => {
+          const data = doc.data();
+          const quarto = data.numero_quarto || data.quarto;
+          if (quarto) {
+            quartosSet.add(quarto);
+          }
+        });
+
+        quartosSet.forEach(quarto => {
+          quartos.push({ numero: quarto, numero_quarto: quarto });
+        });
+      } else {
+        snapshot.forEach(doc => quartos.push(doc.data()));
+      }
+
       res.json({ success: true, data: quartos });
-    } catch (e) { res.json({ success: true, data: [] }); }
+    } catch (e) {
+      console.error('Erro ao buscar quartos:', e);
+      res.json({ success: true, data: [] });
+    }
 });
 
 app.get('/api/logs', async (req, res) => {
@@ -320,19 +378,23 @@ app.get('/api/logs', async (req, res) => {
 });
 
 app.get('/api/viagens', async (req, res) => {
-    // Pode ler de 'embarques' agora para ser mais preciso sobre as viagens cadastradas
+    // Lê de 'alunos' para pegar as viagens cadastradas
     try {
-      const snapshot = await db.collection('embarques').get();
+      const snapshot = await db.collection('alunos').get();
       const viagensMap = new Map();
       snapshot.forEach(doc => {
         const p = doc.data();
-        if (p.inicioViagem && p.fimViagem) {
-          const key = `${p.inicioViagem}|${p.fimViagem}`;
+        // Suporta ambos os formatos: inicio_viagem/fim_viagem e inicioViagem/fimViagem
+        const inicio = p.inicio_viagem || p.inicioViagem;
+        const fim = p.fim_viagem || p.fimViagem;
+
+        if (inicio && fim) {
+          const key = `${inicio}|${fim}`;
           if (!viagensMap.has(key)) {
-            viagensMap.set(key, { 
-                inicio_viagem: p.inicioViagem, 
-                fim_viagem: p.fimViagem, 
-                label: `${p.inicioViagem} até ${p.fimViagem}` 
+            viagensMap.set(key, {
+                inicio_viagem: inicio,
+                fim_viagem: fim,
+                label: `${inicio} até ${fim}`
             });
           }
         }
