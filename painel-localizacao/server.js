@@ -360,23 +360,42 @@ app.get('/api/pessoas', async (req, res) => {
 
 app.get('/api/quartos', async (req, res) => {
     try {
-      // Lê da coleção 'quartos' e extrai números únicos
-      const snapshot = await db.collection('quartos').get();
-      const quartosSet = new Set();
+      // Busca dados das duas coleções em paralelo
+      const [quartosSnapshot, alunosSnapshot] = await Promise.all([
+        db.collection('quartos').get(),
+        db.collection('alunos').get()
+      ]);
 
-      snapshot.forEach(doc => {
+      // Cria mapa de movimentações por CPF
+      const movimentacoesPorCpf = new Map();
+      alunosSnapshot.forEach(doc => {
         const data = doc.data();
-        if (data.numero_quarto) {
-          quartosSet.add(data.numero_quarto);
-        }
+        movimentacoesPorCpf.set(data.cpf, data.movimentacao || 'VOLTOU_AO_QUARTO');
       });
 
-      const quartos = Array.from(quartosSet).map(numero => ({
-        numero: numero,
-        numero_quarto: numero
-      }));
+      // Retorna todos os dados dos alunos por quarto
+      const todosQuartos = [];
+      quartosSnapshot.forEach(doc => {
+        const quarto = doc.data();
+        const movimentacao = movimentacoesPorCpf.get(quarto.cpf) || 'VOLTOU_AO_QUARTO';
 
-      res.json({ success: true, data: quartos });
+        todosQuartos.push({
+          'Quarto': quarto.numero_quarto || '',
+          'quarto': quarto.numero_quarto || '',
+          'Nome do Hóspede': quarto.nome_hospede || '',
+          'Nome': quarto.nome_hospede || '',
+          'nome': quarto.nome_hospede || '',
+          'Escola': quarto.colegio || '',
+          'escola': quarto.colegio || '',
+          'CPF': quarto.cpf || '',
+          'cpf': quarto.cpf || '',
+          'movimentacao': movimentacao,
+          'inicio_viagem': quarto.inicio_viagem || '',
+          'fim_viagem': quarto.fim_viagem || ''
+        });
+      });
+
+      res.json({ success: true, data: todosQuartos });
     } catch (e) {
       console.error('Erro ao buscar quartos:', e);
       res.json({ success: true, data: [] });
