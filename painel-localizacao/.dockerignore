@@ -1,0 +1,45 @@
+# Arquivos e pastas a serem ignorados no build do Docker
+
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Ambiente local
+.env
+.env.local
+.env.*.local
+env.yaml
+serviceAccountKey.json
+
+# Git
+.git
+.gitignore
+
+# Documentação
+*.md
+!README.md
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Testes
+test
+tests
+*.test.js
+*.spec.js
+
+# Build
+dist
+build
+
+# Logs
+logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
