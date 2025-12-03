@@ -25,3 +25,4 @@ Thumbs.db
 .cache/
 dist/
 build/
+painel-localizacao/serviceAccountKey.json

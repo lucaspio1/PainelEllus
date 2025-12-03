@@ -332,55 +332,19 @@ async function gerarPDFSelecionados() {
 }
 
 function gerarQRCodeBase64(text) {
-    return new Promise((resolve, reject) => {
-        // Cria elemento temporário
-        const div = document.createElement('div');
-        // Não use display:none, pois o canvas precisa ser renderizado
-        div.style.position = 'absolute';
-        div.style.left = '-9999px';
-        div.style.top = '0px'; 
-        document.body.appendChild(div);
-
+    return new Promise((resolve) => {
         try {
-            // Limpa caracteres problemáticos (acentos) para o gerador
-            const safeText = unescape(encodeURIComponent(text));
-
-            const qr = new QRCode(div, {
-                text: safeText,
-                width: 300,
-                height: 300,
-                correctLevel: QRCode.CorrectLevel.M
+            // QRious gera direto em memória, sem precisar de div ou appendChild
+            const qr = new QRious({
+                value: text,
+                size: 300,
+                level: 'M' // Mesma correção de erro
             });
-            
-            // Aumentei o tempo para 300ms para garantir que o navegador desenhe o canvas
-            setTimeout(() => {
-                let dataUrl = '';
-                // Tenta pegar o canvas gerado pela lib
-                const canvas = div.querySelector('canvas');
-                
-                if (canvas) {
-                    dataUrl = canvas.toDataURL("image/png");
-                    cleanup(div);
-                    resolve(dataUrl);
-                } else {
-                    // Fallback para img
-                    const img = div.querySelector('img');
-                    if (img && img.src) {
-                        dataUrl = img.src;
-                        cleanup(div);
-                        resolve(dataUrl);
-                    } else {
-                        cleanup(div);
-                        console.warn('QRCode.js não criou o canvas a tempo.');
-                        resolve(null); // Resolve com null em vez de travar
-                    }
-                }
-            }, 10000);
-
+            // Retorna direto o base64
+            resolve(qr.toDataURL());
         } catch (e) {
-            cleanup(div);
-            console.error(e);
-            resolve(null); // Resolve com null para não quebrar o PDF
+            console.error("Erro QRious:", e);
+            resolve(null);
         }
     });
 }
