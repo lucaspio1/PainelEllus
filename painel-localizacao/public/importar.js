@@ -5,34 +5,46 @@ let gruposEncontrados = {};
 document.addEventListener('DOMContentLoaded', () => {
     // Configura o toggle do botão facial visualmente
     const checkFacial = document.getElementById('checkFacial');
-    checkFacial.addEventListener('change', (e) => {
-        // Apenas para o label visual na tela
-        document.getElementById('labelFacial').textContent = e.target.checked ? 'SIM' : 'NÃO';
-    });
+    if (checkFacial) {
+        checkFacial.addEventListener('change', (e) => {
+            const label = document.getElementById('labelFacial');
+            if (label) label.textContent = e.target.checked ? 'SIM' : 'NÃO';
+        });
+    }
 
     // Define data de hoje no filtro
-    const hoje = new Date().toISOString().split('T')[0];
-    document.getElementById('filterDataInicio').value = hoje;
+    const inputData = document.getElementById('filterDataInicio');
+    if (inputData) {
+        const hoje = new Date().toISOString().split('T')[0];
+        inputData.value = hoje;
+    }
 });
 
-// --- 1. LÓGICA DE IMPORTAÇÃO (Permanece igual) ---
+// --- 1. LÓGICA DE IMPORTAÇÃO ---
 
-document.getElementById('fileInput').addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
+const fileInput = document.getElementById('fileInput');
+if (fileInput) {
+    fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
 
-    const reader = new FileReader();
-    reader.readAsArrayBuffer(file);
-    reader.onload = function(evt) {
-        const data = new Uint8Array(evt.target.result);
-        const workbook = XLSX.read(data, {type: 'array'});
-        processarExcel(workbook.Sheets[workbook.SheetNames[0]]);
-    };
-});
+        const reader = new FileReader();
+        reader.readAsArrayBuffer(file);
+        reader.onload = function(evt) {
+            const data = new Uint8Array(evt.target.result);
+            // Verifica se a biblioteca XLSX está carregada
+            if (typeof XLSX === 'undefined') return alert('Erro: Biblioteca XLSX não carregada.');
+            
+            const workbook = XLSX.read(data, {type: 'array'});
+            processarExcel(workbook.Sheets[workbook.SheetNames[0]]);
+        };
+    });
+}
 
 function processarExcel(worksheet) {
     const cellA1 = worksheet['A1'];
-    if(cellA1 && cellA1.v) document.getElementById('inputPasseio').value = cellA1.v.trim();
+    const inputPasseio = document.getElementById('inputPasseio');
+    if(cellA1 && cellA1.v && inputPasseio) inputPasseio.value = cellA1.v.trim();
 
     const dadosBrutos = XLSX.utils.sheet_to_json(worksheet, { range: 1, defval: "" });
     if (dadosBrutos.length === 0) return alert('Nenhum dado encontrado.');
@@ -50,7 +62,8 @@ function processarExcel(worksheet) {
         if (!nome) return;
 
         const cpfLimpo = String(cpfRaw || '').replace(/\D/g, '');
-        if (!cpfLimpo) return; 
+        // Opcional: validar se precisa ter CPF para importar
+        // if (!cpfLimpo) return; 
 
         alunosParaImportar.push({
             tempId: index,
@@ -62,14 +75,18 @@ function processarExcel(worksheet) {
         });
     });
 
-    document.getElementById('globalFields').classList.remove('hidden');
+    const globalFields = document.getElementById('globalFields');
+    if (globalFields) globalFields.classList.remove('hidden');
     renderizarTabelaPreview();
 }
 
 function renderizarTabelaPreview() {
     const tbody = document.getElementById('tableBody');
+    if (!tbody) return;
+    
     tbody.innerHTML = '';
-    document.getElementById('totalLinhas').textContent = alunosParaImportar.length;
+    const totalLinhas = document.getElementById('totalLinhas');
+    if (totalLinhas) totalLinhas.textContent = alunosParaImportar.length;
     
     if (alunosParaImportar.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" style="text-align:center">Nenhum aluno na lista.</td></tr>';
@@ -133,7 +150,7 @@ async function enviarDados() {
             alert('✅ Importado com sucesso!');
             document.getElementById('filterDataInicio').value = inputs.inicio;
             limparImportacao();
-            buscarGrupos();
+            buscarGrupos(); // Atualiza a lista de grupos automaticamente
         } else {
             alert('Erro: ' + data.message);
         }
@@ -148,16 +165,18 @@ function limparImportacao() {
     document.getElementById('tableBody').innerHTML = '';
 }
 
-// --- 2. LÓGICA DE GRUPOS (Permanece igual) ---
+// --- 2. LÓGICA DE GRUPOS ---
 
 async function buscarGrupos() {
     const dataInicio = document.getElementById('filterDataInicio').value;
+    if (!dataInicio) return alert('Selecione uma data.');
+
     toggleLoading(true, 'Buscando grupos...');
     try {
         const res = await fetch(`/api/embarque-lista?inicio=${dataInicio}`);
         const json = await res.json();
         if (json.status === 'sucesso') agruparDados(json.data);
-        else alert('Erro ao buscar dados.');
+        else alert('Erro ao buscar dados: ' + (json.message || 'Desconhecido'));
     } catch (e) { console.error(e); alert('Erro na busca.'); }
     finally { toggleLoading(false); }
 }
@@ -165,15 +184,21 @@ async function buscarGrupos() {
 function agruparDados(listaAlunos) {
     gruposEncontrados = {};
     listaAlunos.forEach(aluno => {
+        // Normaliza dados para evitar undefined
         const idPasseioReal = aluno.idPasseio || aluno.id_passeio || 'S/ Passeio';
-        const chave = `${aluno.colegio || 'S/ Colégio'}|${idPasseioReal}|${aluno.onibus || '?'}|${aluno.inicio_viagem}`;
+        const colegioReal = aluno.colegio || 'S/ Colégio';
+        const onibusReal = aluno.onibus || '?';
+        const dataReal = aluno.inicio_viagem || '';
+
+        // Chave única para o grupo
+        const chave = `${colegioReal}|${idPasseioReal}|${onibusReal}|${dataReal}`;
         
         if (!gruposEncontrados[chave]) {
             gruposEncontrados[chave] = {
-                colegio: aluno.colegio,
+                colegio: colegioReal,
                 passeio: idPasseioReal, 
-                onibus: aluno.onibus,
-                data: aluno.inicio_viagem,
+                onibus: onibusReal,
+                data: dataReal,
                 alunos: []
             };
         }
@@ -184,6 +209,8 @@ function agruparDados(listaAlunos) {
 
 function renderizarTabelaGrupos() {
     const tbody = document.getElementById('listaGruposBody');
+    if (!tbody) return;
+
     tbody.innerHTML = '';
     const chaves = Object.keys(gruposEncontrados);
     if (chaves.length === 0) {
@@ -195,10 +222,10 @@ function renderizarTabelaGrupos() {
         tbody.innerHTML += `
             <tr>
                 <td><input type="checkbox" class="grupo-checkbox" value="${chave}"></td>
-                <td>${g.colegio || '-'}</td>
-                <td>${g.passeio || '-'}</td>
-                <td>${g.onibus || '-'}</td>
-                <td>${g.data || '-'}</td>
+                <td>${g.colegio}</td>
+                <td>${g.passeio}</td>
+                <td>${g.onibus}</td>
+                <td>${g.data}</td>
                 <td>${g.alunos.length}</td>
             </tr>
         `;
@@ -210,70 +237,94 @@ function toggleSelectAll() {
     document.querySelectorAll('.grupo-checkbox').forEach(c => c.checked = master.checked);
 }
 
-// --- 3. GERAÇÃO DE PDF COM QR CODE (CORRIGIDO: 1 QR POR ÔNIBUS) ---
+// --- 3. GERAÇÃO DE PDF COM QR CODE (CORRIGIDO E BLINDADO) ---
 
 async function gerarPDFSelecionados() {
     const checkboxes = document.querySelectorAll('.grupo-checkbox:checked');
     if (checkboxes.length === 0) return alert('Selecione pelo menos um colégio/grupo.');
 
     // Status Facial
-    const isFacialChecked = document.getElementById('checkFacial').checked;
+    const checkFacial = document.getElementById('checkFacial');
+    const isFacialChecked = checkFacial ? checkFacial.checked : false;
     const facialVisual = isFacialChecked ? 'SIM' : 'NÃO';
     const facialQR = isFacialChecked ? 'sim' : 'não';
     
     toggleLoading(true, 'Gerando PDF...');
+
+    if (typeof window.jspdf === 'undefined') {
+        toggleLoading(false);
+        return alert('Biblioteca jsPDF não carregada. Verifique sua internet ou imports.');
+    }
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     
     let totalPageCount = 0;
 
-    // Loop APENAS pelos grupos/ônibus selecionados (NÃO itera alunos)
     for (const cb of checkboxes) {
         const grupo = gruposEncontrados[cb.value];
         
+        if (!grupo) continue;
+
+        // Adiciona nova página (exceto na primeira iteração)
         if (totalPageCount > 0) doc.addPage();
+        totalPageCount++;
         
         const pageWidth = doc.internal.pageSize.getWidth();
         const centerX = pageWidth / 2;
         const centerY = doc.internal.pageSize.getHeight() / 2;
 
-        // String QR Mestra: COLEGIO;ID_PASSEIO;ONIBUS;sim
-        const qrStringGroup = `${grupo.colegio || 'S/ Colégio'};${grupo.passeio || 'S/ Passeio'};${grupo.onibus || 'S/ Ônibus'};${facialQR}`;
-        
-        // Gera o QR Code
-        const groupQRBase64 = await gerarQRCodeBase64(qrStringGroup);
-        
-        // --- LAYOUT DO QR CODE DE ÔNIBUS ---
+        // --- 1. ESCREVE O TEXTO PRIMEIRO (Para garantir que a página não fique vazia) ---
         
         // Título: Colégio
         doc.setFontSize(22);
         doc.setFont("helvetica", "bold");
-        doc.text((grupo.colegio || '').toUpperCase(), centerX, centerY - 60, { align: "center", maxWidth: 180 });
+        doc.setTextColor(0); // Preto
+        doc.text((grupo.colegio || 'S/ COLÉGIO').toUpperCase(), centerX, centerY - 60, { align: "center", maxWidth: 180 });
         
         // Subtítulo: Passeio
         doc.setFontSize(10);
         doc.setFont("helvetica", "normal");
-        doc.text(grupo.passeio || '', centerX, centerY - 50, { align: "center", maxWidth: 180 });
+        doc.text(grupo.passeio || 'S/ PASSEIO', centerX, centerY - 50, { align: "center", maxWidth: 180 });
 
-        // IMAGEM DO QR CODE
-        doc.addImage(groupQRBase64, 'PNG', centerX - 40, centerY - 40, 70, 80);
-        
-        // Texto cru do QR Code (Fonte Pequena)
-        doc.setFontSize(10); 
-        doc.setTextColor(150); 
-        doc.text(qrStringGroup, centerX, centerY + 50, { align: "center", maxWidth: 190 });
-        
         // Info Ônibus
         doc.setFontSize(16);
-        doc.setTextColor(0); 
+        doc.setFont("helvetica", "bold");
         doc.text(`ÔNIBUS: ${grupo.onibus || '-'}`, centerX, centerY + 65, { align: "center" });
         
-        // Status Facial Visual
+        // Status Facial
         const txtFacialVisual = facialVisual === 'SIM' ? 'FACIAL: SIM ✅' : 'FACIAL: NÃO ❌';
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "normal");
         doc.text(txtFacialVisual, centerX, centerY + 75, { align: "center" });
 
-        totalPageCount++;
+        // String para o QR Code
+        const qrStringGroup = `${grupo.colegio || ''};${grupo.passeio || ''};${grupo.onibus || ''};${facialQR}`;
+        
+        // Texto legível abaixo da área do QR (Debug)
+        doc.setFontSize(8); 
+        doc.setTextColor(150); 
+        doc.text(qrStringGroup, centerX, centerY + 50, { align: "center", maxWidth: 190 });
+
+        // --- 2. TENTA GERAR E DESENHAR O QR CODE ---
+        try {
+            const groupQRBase64 = await gerarQRCodeBase64(qrStringGroup);
+            
+            if (groupQRBase64) {
+                doc.addImage(groupQRBase64, 'PNG', centerX - 40, centerY - 40, 70, 80);
+            } else {
+                // Se retornar nulo mas sem erro
+                doc.setTextColor(255, 0, 0);
+                doc.text("QR Code não gerado (Timeout)", centerX, centerY, { align: "center" });
+            }
+
+        } catch (error) {
+            console.error(`Erro QR no grupo ${grupo.colegio}:`, error);
+            // Desenha aviso de erro no PDF para você saber o que houve
+            doc.setTextColor(255, 0, 0); // Vermelho
+            doc.setFontSize(10);
+            doc.text("Erro ao gerar QR Code", centerX, centerY, { align: "center" });
+        }
     }
 
     doc.save(`QRCodes_Onibus_Ellus_${new Date().toISOString().slice(0,10)}.pdf`);
@@ -281,40 +332,80 @@ async function gerarPDFSelecionados() {
 }
 
 function gerarQRCodeBase64(text) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+        // Cria elemento temporário
         const div = document.createElement('div');
+        // Não use display:none, pois o canvas precisa ser renderizado
         div.style.position = 'absolute';
         div.style.left = '-9999px';
+        div.style.top = '0px'; 
         document.body.appendChild(div);
 
-        const qr = new QRCode(div, {
-            text: text,
-            width: 300,
-            height: 300,
-            correctLevel: QRCode.CorrectLevel.M
-        });
-        
-        setTimeout(() => {
-            let dataUrl = '';
-            const canvas = div.querySelector('canvas');
-            if (canvas) {
-                dataUrl = canvas.toDataURL("image/png");
-            } else {
-                const img = div.querySelector('img');
-                if (img) dataUrl = img.src;
-            }
-            document.body.removeChild(div);
-            resolve(dataUrl);
-        }, 150);
+        try {
+            // Limpa caracteres problemáticos (acentos) para o gerador
+            const safeText = unescape(encodeURIComponent(text));
+
+            const qr = new QRCode(div, {
+                text: safeText,
+                width: 300,
+                height: 300,
+                correctLevel: QRCode.CorrectLevel.M
+            });
+            
+            // Aumentei o tempo para 300ms para garantir que o navegador desenhe o canvas
+            setTimeout(() => {
+                let dataUrl = '';
+                // Tenta pegar o canvas gerado pela lib
+                const canvas = div.querySelector('canvas');
+                
+                if (canvas) {
+                    dataUrl = canvas.toDataURL("image/png");
+                    cleanup(div);
+                    resolve(dataUrl);
+                } else {
+                    // Fallback para img
+                    const img = div.querySelector('img');
+                    if (img && img.src) {
+                        dataUrl = img.src;
+                        cleanup(div);
+                        resolve(dataUrl);
+                    } else {
+                        cleanup(div);
+                        console.warn('QRCode.js não criou o canvas a tempo.');
+                        resolve(null); // Resolve com null em vez de travar
+                    }
+                }
+            }, 10000);
+
+        } catch (e) {
+            cleanup(div);
+            console.error(e);
+            resolve(null); // Resolve com null para não quebrar o PDF
+        }
     });
+}
+
+function cleanup(element) {
+    if (document.body.contains(element)) {
+        document.body.removeChild(element);
+    }
+}
+
+function cleanup(element) {
+    if (document.body.contains(element)) {
+        document.body.removeChild(element);
+    }
 }
 
 function toggleLoading(show, text = 'Processando...') {
     const el = document.getElementById('loadingOverlay');
-    if (show) {
-        document.getElementById('loadingText').textContent = text;
-        el.classList.remove('hidden');
-    } else {
-        el.classList.add('hidden');
+    const txt = document.getElementById('loadingText');
+    if (el) {
+        if (show) {
+            if (txt) txt.textContent = text;
+            el.classList.remove('hidden');
+        } else {
+            el.classList.add('hidden');
+        }
     }
 }
