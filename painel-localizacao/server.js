@@ -124,7 +124,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// ✅ ROTA DE IMPORTAÇÃO (Salva nas tabelas 'embarques' e 'alunos')
+// ✅ ROTA DE IMPORTAÇÃO (Salva nas tabelas 'quartos', 'embarques' e 'alunos')
 app.post('/api/importar', async (req, res) => {
   try {
     const { alunos } = req.body;
@@ -141,6 +141,35 @@ app.post('/api/importar', async (req, res) => {
 
       const agora = new Date();
 
+      // Salva em 'quartos' (dados de hospedagem)
+      const quartoRef = db.collection('quartos').doc(cpfLimpo);
+      const dadosQuarto = {
+        colegio: aluno.colegio || '',
+        cpf: cpfLimpo,
+        nome_hospede: aluno.nome,
+        numero_quarto: aluno.quarto || aluno.numero_quarto || '',
+        inicio_viagem: formatarDataCurta(aluno.inicio_viagem),
+        fim_viagem: formatarDataCurta(aluno.fim_viagem),
+        created_at: agora,
+        updated_at: agora
+      };
+
+      // Salva em 'alunos' (para controle de movimentação)
+      const alunoRef = db.collection('alunos').doc(cpfLimpo);
+      const dadosAluno = {
+        colegio: aluno.colegio || '',
+        cpf: cpfLimpo,
+        nome: aluno.nome,
+        turma: aluno.turma || '',
+        email: aluno.email || '',
+        telefone: aluno.telefone || '',
+        inicio_viagem: formatarDataCurta(aluno.inicio_viagem),
+        fim_viagem: formatarDataCurta(aluno.fim_viagem),
+        movimentacao: 'QUARTO', // Status inicial
+        facial_cadastrada: false,
+        updated_at: agora
+      };
+
       // Salva em 'embarques' (para controle de embarque/facial)
       const embarqueRef = db.collection('embarques').doc(cpfLimpo);
       const dadosEmbarque = {
@@ -149,7 +178,6 @@ app.post('/api/importar', async (req, res) => {
         colegio: aluno.colegio || '',
         cpf: cpfLimpo,
         nome: aluno.nome,
-        nome_hospede: aluno.nome,
         turma: aluno.turma || '',
         idPasseio: aluno.id_passeio || '',
         onibus: aluno.onibus || '',
@@ -161,29 +189,16 @@ app.post('/api/importar', async (req, res) => {
         updated_at: agora
       };
 
-      // Salva em 'alunos' (para controle de quartos/movimentação)
-      const alunoRef = db.collection('alunos').doc(cpfLimpo);
-      const dadosAluno = {
-        colegio: aluno.colegio || '',
-        cpf: cpfLimpo,
-        nome_hospede: aluno.nome,
-        numero_quarto: aluno.quarto || aluno.numero_quarto || '',
-        inicio_viagem: formatarDataCurta(aluno.inicio_viagem),
-        fim_viagem: formatarDataCurta(aluno.fim_viagem),
-        movimentacao: 'QUARTO', // Status inicial
-        created_at: agora,
-        updated_at: agora
-      };
-
       return Promise.all([
-        embarqueRef.set(dadosEmbarque, { merge: true }),
-        alunoRef.set(dadosAluno, { merge: true })
+        quartoRef.set(dadosQuarto, { merge: true }),
+        alunoRef.set(dadosAluno, { merge: true }),
+        embarqueRef.set(dadosEmbarque, { merge: true })
       ]);
     });
 
     await Promise.all(promessas);
 
-    res.json({ success: true, message: `${alunos.length} registros salvos nas tabelas 'embarques' e 'alunos'.` });
+    res.json({ success: true, message: `${alunos.length} registros salvos nas tabelas 'quartos', 'alunos' e 'embarques'.` });
 
   } catch (error) {
     console.error('Erro na importação:', error);
@@ -300,55 +315,66 @@ app.post('/api/movimentar', async (req, res) => {
 // ✅ OUTRAS ROTAS (Quartos, Viagens, Logs, Pessoas) MANTIDAS
 app.get('/api/pessoas', async (req, res) => {
   try {
-    const snapshot = await db.collection('alunos').get();
-    const pessoas = [];
-    snapshot.forEach(doc => {
+    // Busca dados das duas coleções em paralelo (otimizado)
+    const [quartosSnapshot, alunosSnapshot] = await Promise.all([
+      db.collection('quartos').get(),
+      db.collection('alunos').get()
+    ]);
+
+    // Cria um mapa de movimentações por CPF para lookup rápido
+    const movimentacoesPorCpf = new Map();
+    alunosSnapshot.forEach(doc => {
       const data = doc.data();
+      movimentacoesPorCpf.set(data.cpf, data.movimentacao || 'QUARTO');
+    });
+
+    // Combina dados de quartos com movimentação
+    const pessoas = [];
+    quartosSnapshot.forEach(doc => {
+      const quarto = doc.data();
+      const movimentacao = movimentacoesPorCpf.get(quarto.cpf) || 'QUARTO';
+
       pessoas.push({
         id: doc.id,
-        cpf: data.cpf,
-        nome: data.nome_hospede || data.nome, // Suporta ambos os campos
-        nome_hospede: data.nome_hospede,
-        colegio: data.colegio,
-        turma: data.turma || '', // Opcional
-        quarto: data.numero_quarto || data.quarto,
-        numero_quarto: data.numero_quarto,
-        inicio_viagem: data.inicio_viagem,
-        fim_viagem: data.fim_viagem,
-        movimentacao: data.movimentacao || 'QUARTO',
-        created_at: data.created_at,
-        updated_at: data.updated_at
+        cpf: quarto.cpf,
+        nome: quarto.nome_hospede,
+        nome_hospede: quarto.nome_hospede,
+        colegio: quarto.colegio,
+        turma: quarto.turma || '',
+        quarto: quarto.numero_quarto,
+        numero_quarto: quarto.numero_quarto,
+        inicio_viagem: quarto.inicio_viagem,
+        fim_viagem: quarto.fim_viagem,
+        movimentacao: movimentacao,
+        created_at: quarto.created_at,
+        updated_at: quarto.updated_at
       });
     });
+
     res.json({ success: true, data: pessoas });
-  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+  } catch (e) {
+    console.error('Erro em /api/pessoas:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
 });
 
 app.get('/api/quartos', async (req, res) => {
     try {
-      // Tenta ler da coleção 'quartos' primeiro
+      // Lê da coleção 'quartos' e extrai números únicos
       const snapshot = await db.collection('quartos').get();
-      const quartos = [];
+      const quartosSet = new Set();
 
-      if (snapshot.empty) {
-        // Se não houver coleção 'quartos', extrai quartos únicos da coleção 'alunos'
-        const alunosSnapshot = await db.collection('alunos').get();
-        const quartosSet = new Set();
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.numero_quarto) {
+          quartosSet.add(data.numero_quarto);
+        }
+      });
 
-        alunosSnapshot.forEach(doc => {
-          const data = doc.data();
-          const quarto = data.numero_quarto || data.quarto;
-          if (quarto) {
-            quartosSet.add(quarto);
-          }
-        });
-
-        quartosSet.forEach(quarto => {
-          quartos.push({ numero: quarto, numero_quarto: quarto });
-        });
-      } else {
-        snapshot.forEach(doc => quartos.push(doc.data()));
-      }
+      const quartos = Array.from(quartosSet).map(numero => ({
+        numero: numero,
+        numero_quarto: numero
+      }));
 
       res.json({ success: true, data: quartos });
     } catch (e) {
@@ -378,15 +404,15 @@ app.get('/api/logs', async (req, res) => {
 });
 
 app.get('/api/viagens', async (req, res) => {
-    // Lê de 'alunos' para pegar as viagens cadastradas
+    // Lê de 'quartos' para pegar as viagens cadastradas
     try {
-      const snapshot = await db.collection('alunos').get();
+      const snapshot = await db.collection('quartos').get();
       const viagensMap = new Map();
+
       snapshot.forEach(doc => {
-        const p = doc.data();
-        // Suporta ambos os formatos: inicio_viagem/fim_viagem e inicioViagem/fimViagem
-        const inicio = p.inicio_viagem || p.inicioViagem;
-        const fim = p.fim_viagem || p.fimViagem;
+        const q = doc.data();
+        const inicio = q.inicio_viagem;
+        const fim = q.fim_viagem;
 
         if (inicio && fim) {
           const key = `${inicio}|${fim}`;
@@ -399,8 +425,12 @@ app.get('/api/viagens', async (req, res) => {
           }
         }
       });
+
       res.json({ success: true, data: Array.from(viagensMap.values()) });
-    } catch (error) { res.status(500).json({ success: false }); }
+    } catch (error) {
+      console.error('Erro ao buscar viagens:', error);
+      res.status(500).json({ success: false });
+    }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
