@@ -5,15 +5,53 @@ const cors = require('cors');
 const path = require('path');
 const os = require('os');
 const admin = require('firebase-admin');
+const fs = require('fs');
 
-// ⚠️ Certifique-se de ter o arquivo 'serviceAccountKey.json' na mesma pasta
-const serviceAccount = require('./serviceAccountKey.json');
-
-// [FIREBASE] Inicialização
+// [FIREBASE] Inicialização com suporte a múltiplos ambientes
 if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
+  try {
+    // Método 1: Variáveis de ambiente (recomendado para GCP)
+    if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY) {
+      console.log('🔧 Inicializando Firebase com variáveis de ambiente...');
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+        })
+      });
+      console.log('✅ Firebase conectado via variáveis de ambiente');
+    }
+    // Método 2: Application Default Credentials (automático no GCP)
+    else if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GCP_PROJECT) {
+      console.log('🔧 Inicializando Firebase com Application Default Credentials...');
+      admin.initializeApp({
+        projectId: process.env.GCP_PROJECT || process.env.FIREBASE_PROJECT_ID
+      });
+      console.log('✅ Firebase conectado via ADC (GCP)');
+    }
+    // Método 3: Arquivo serviceAccountKey.json (desenvolvimento local)
+    else if (fs.existsSync('./serviceAccountKey.json')) {
+      console.log('🔧 Inicializando Firebase com serviceAccountKey.json...');
+      const serviceAccount = require('./serviceAccountKey.json');
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+      console.log('✅ Firebase conectado via serviceAccountKey.json');
+    }
+    // Erro: nenhuma credencial encontrada
+    else {
+      console.error('❌ ERRO: Nenhuma credencial Firebase encontrada!');
+      console.error('Configure uma das seguintes opções:');
+      console.error('1. Variáveis de ambiente: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY');
+      console.error('2. GCP ADC: GOOGLE_APPLICATION_CREDENTIALS ou rode no GCP');
+      console.error('3. Arquivo local: serviceAccountKey.json');
+      process.exit(1);
+    }
+  } catch (error) {
+    console.error('❌ Erro ao inicializar Firebase:', error.message);
+    process.exit(1);
+  }
 }
 
 const db = admin.firestore();

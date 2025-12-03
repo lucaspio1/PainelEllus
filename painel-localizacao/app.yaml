@@ -1,0 +1,37 @@
+# Configuração para Google App Engine
+runtime: nodejs18
+
+# Configurações de instância
+instance_class: F1
+
+# Escalabilidade automática
+automatic_scaling:
+  min_instances: 0
+  max_instances: 10
+  target_cpu_utilization: 0.65
+
+# Variáveis de ambiente
+# ⚠️ IMPORTANTE: Substitua os valores abaixo com suas credenciais reais
+# ⚠️ NÃO commite este arquivo com credenciais reais no git!
+env_variables:
+  # Firebase Configuration
+  # Obtenha essas informações do Firebase Console > Configurações > Contas de serviço
+  FIREBASE_PROJECT_ID: "your-project-id"
+  FIREBASE_CLIENT_EMAIL: "firebase-adminsdk-xxxxx@your-project-id.iam.gserviceaccount.com"
+  FIREBASE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nYOUR_PRIVATE_KEY_HERE\n-----END PRIVATE KEY-----\n"
+
+  # Ou use esta opção para ADC (Application Default Credentials)
+  # Comente as 3 linhas acima e descomente esta:
+  # GCP_PROJECT: "your-project-id"
+
+# Handlers (opcional - otimização)
+handlers:
+  # Servir arquivos estáticos diretamente
+  - url: /public
+    static_dir: public
+    secure: always
+
+  # Todas as outras rotas vão para o Node.js
+  - url: /.*
+    script: auto
+    secure: always
