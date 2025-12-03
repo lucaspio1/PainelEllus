@@ -9,16 +9,7 @@
     "dev": "nodemon server.js",
     "test": "node test-firebase.js",
     "test:firebase": "node test-firebase.js",
-    "build": "pkg . --targets node18-win-x64 --output dist/PainelEllus.exe"
-  },
-  "pkg": {
-    "assets": [
-      "public/**/*",
-      ".env" 
-    ],
-    "targets": [
-      "node18-win-x64"
-    ]
+    "build": "echo 'Build complete - no build step required for GCP deployment'"
   },
   "keywords": [
     "painel",
