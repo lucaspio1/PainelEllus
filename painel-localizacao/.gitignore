@@ -4,7 +4,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Credenciais Firebase e GCP (NUNCA commitar!)
 serviceAccountKey.json
+env.yaml
+.env.local
+.env.*.local
+firebase-credentials.json
 
 # Logs
 logs
