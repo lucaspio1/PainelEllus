@@ -67,9 +67,45 @@ const db = admin.firestore();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Log de diagnóstico para debug
+console.log('🔍 Diagnóstico de Ambiente:');
+console.log('- PORT:', PORT);
+console.log('- NODE_ENV:', process.env.NODE_ENV);
+console.log('- K_SERVICE:', process.env.K_SERVICE || 'não definido (não está no Cloud Run)');
+console.log('- GCP_PROJECT:', process.env.GCP_PROJECT || 'não definido');
+console.log('- FIREBASE_PROJECT_ID:', process.env.FIREBASE_PROJECT_ID || 'não definido');
+console.log('- Firebase App inicializado:', admin.apps.length > 0 ? 'SIM' : 'NÃO');
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// --- HEALTH CHECK E DIAGNÓSTICO ---
+app.get('/health', async (req, res) => {
+  try {
+    // Testa conexão com Firestore
+    await db.collection('_healthcheck').limit(1).get();
+    res.json({
+      status: 'healthy',
+      firebase: 'connected',
+      timestamp: new Date().toISOString(),
+      environment: {
+        port: PORT,
+        k_service: process.env.K_SERVICE || 'local',
+        gcp_project: process.env.GCP_PROJECT || 'not set',
+        firebase_project: process.env.FIREBASE_PROJECT_ID || 'not set'
+      }
+    });
+  } catch (error) {
+    console.error('❌ Health check falhou:', error);
+    res.status(503).json({
+      status: 'unhealthy',
+      firebase: 'disconnected',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 // --- ROTAS DE NAVEGAÇÃO ---
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
