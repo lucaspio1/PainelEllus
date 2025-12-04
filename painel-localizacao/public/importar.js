@@ -124,7 +124,19 @@ async function enviarDados() {
         fim: document.getElementById('inputFim').value
     };
 
-    if (!inputs.passeio || !inputs.inicio || !inputs.fim) return alert('Preencha Passeio, Início e Fim.');
+    // Validação rigorosa dos campos obrigatórios
+    if (!inputs.passeio || !inputs.inicio || !inputs.fim) {
+        return alert('❌ Preencha os campos obrigatórios:\n- ID Passeio\n- Data Início\n- Data Fim');
+    }
+
+    // Validação de espaços extras nos campos críticos para QR Code
+    if (inputs.passeio !== inputs.passeio.replace(/\s+/g, ' ')) {
+        return alert('❌ O campo "ID Passeio" contém espaços extras. Por favor, revise.');
+    }
+
+    if (inputs.colegio && inputs.colegio !== inputs.colegio.replace(/\s+/g, ' ')) {
+        return alert('❌ O campo "Colégio" contém espaços extras. Por favor, revise.');
+    }
     
     if (!confirm(`Confirmar importação de ${alunosParaImportar.length} alunos?\nEsta ação salvará os dados no sistema.`)) return;
 

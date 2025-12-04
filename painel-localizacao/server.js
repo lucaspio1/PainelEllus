@@ -114,6 +114,8 @@ app.get('/home', (req, res) => res.sendFile(path.join(__dirname, 'public', 'home
 app.get('/quartos', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/embarque', (req, res) => res.sendFile(path.join(__dirname, 'public', 'embarque.html')));
 app.get('/importar', (req, res) => res.sendFile(path.join(__dirname, 'public', 'importar.html')));
+app.get('/usuarios', (req, res) => res.sendFile(path.join(__dirname, 'public', 'usuarios.html')));
+app.get('/homelist', (req, res) => res.sendFile(path.join(__dirname, 'public', 'homelist.html')));
 
 // --- UTILITÁRIOS ---
 function formatarDataPTBR(dataISO) {
@@ -217,15 +219,19 @@ app.post('/api/importar', async (req, res) => {
 
       // Salva em 'embarques' (para controle de embarque/facial)
       const embarqueRef = db.collection('embarques').doc(cpfLimpo);
+
+      // Limpa espaços extras dos campos críticos para QR Code
+      const cleanString = (str) => str ? String(str).trim().replace(/\s+/g, ' ') : '';
+
       const dadosEmbarque = {
         Facial: "PENDENTE",
         facial_cadastrada: false,
-        colegio: aluno.colegio || '',
+        colegio: cleanString(aluno.colegio),
         cpf: cpfLimpo,
-        nome: aluno.nome,
-        turma: aluno.turma || '',
-        idPasseio: aluno.id_passeio || '',
-        onibus: aluno.onibus || '',
+        nome: cleanString(aluno.nome),
+        turma: cleanString(aluno.turma),
+        idPasseio: cleanString(aluno.id_passeio),
+        onibus: cleanString(aluno.onibus),
         inicioViagem: formatarDataCurta(aluno.inicio_viagem),
         fimViagem: formatarDataCurta(aluno.fim_viagem),
         embarque: "",
@@ -498,6 +504,160 @@ app.get('/api/viagens', async (req, res) => {
       console.error('Erro ao buscar viagens:', error);
       res.status(500).json({ success: false });
     }
+});
+
+// ✅ API DE USUÁRIOS
+
+// Listar todos os usuários
+app.get('/api/usuarios', async (req, res) => {
+  try {
+    const snapshot = await db.collection('usuarios').get();
+    const usuarios = [];
+    snapshot.forEach(doc => usuarios.push(doc.data()));
+    res.json({ success: true, data: usuarios });
+  } catch (error) {
+    console.error('Erro ao buscar usuários:', error);
+    res.status(500).json({ success: false, message: 'Erro ao buscar usuários.' });
+  }
+});
+
+// Criar novo usuário
+app.post('/api/usuarios', async (req, res) => {
+  try {
+    const { cpf, nome, senha, perfil, ativo } = req.body;
+
+    if (!cpf || !nome || !senha) {
+      return res.status(400).json({ success: false, message: 'CPF, nome e senha são obrigatórios.' });
+    }
+
+    const cpfLimpo = String(cpf).replace(/\D/g, '');
+
+    // Verifica se já existe
+    const userRef = db.collection('usuarios').doc(cpfLimpo);
+    const doc = await userRef.get();
+
+    if (doc.exists) {
+      return res.status(400).json({ success: false, message: 'Usuário com este CPF já existe.' });
+    }
+
+    const userData = {
+      cpf: cpfLimpo,
+      nome: nome.trim(),
+      senha: senha,  // Em produção, use hash (bcrypt)
+      perfil: perfil || 'USER',
+      ativo: ativo !== false
+    };
+
+    await userRef.set(userData);
+
+    res.json({ success: true, message: 'Usuário criado com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao criar usuário:', error);
+    res.status(500).json({ success: false, message: 'Erro ao criar usuário.' });
+  }
+});
+
+// Atualizar usuário
+app.put('/api/usuarios/:cpf', async (req, res) => {
+  try {
+    const { cpf } = req.params;
+    const { nome, senha, perfil, ativo } = req.body;
+
+    const cpfLimpo = String(cpf).replace(/\D/g, '');
+    const userRef = db.collection('usuarios').doc(cpfLimpo);
+    const doc = await userRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
+    }
+
+    const updateData = {
+      nome: nome.trim(),
+      perfil: perfil || 'USER',
+      ativo: ativo !== false
+    };
+
+    // Só atualiza senha se foi fornecida
+    if (senha) {
+      updateData.senha = senha;
+    }
+
+    await userRef.update(updateData);
+
+    res.json({ success: true, message: 'Usuário atualizado com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao atualizar usuário:', error);
+    res.status(500).json({ success: false, message: 'Erro ao atualizar usuário.' });
+  }
+});
+
+// Excluir usuário
+app.delete('/api/usuarios/:cpf', async (req, res) => {
+  try {
+    const { cpf } = req.params;
+    const cpfLimpo = String(cpf).replace(/\D/g, '');
+
+    await db.collection('usuarios').doc(cpfLimpo).delete();
+
+    res.json({ success: true, message: 'Usuário excluído com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao excluir usuário:', error);
+    res.status(500).json({ success: false, message: 'Erro ao excluir usuário.' });
+  }
+});
+
+// ✅ API PARA ATRIBUIR QUARTO
+
+app.post('/api/atribuir-quarto', async (req, res) => {
+  try {
+    const { cpf, numero_quarto, nome_hospede, colegio, inicio_viagem, fim_viagem } = req.body;
+
+    if (!cpf || !numero_quarto) {
+      return res.status(400).json({ success: false, message: 'CPF e número do quarto são obrigatórios.' });
+    }
+
+    const cpfLimpo = String(cpf).replace(/\D/g, '');
+    const quartoRef = db.collection('quartos').doc(cpfLimpo);
+
+    const dadosQuarto = {
+      cpf: cpfLimpo,
+      numero_quarto: numero_quarto.trim(),
+      nome_hospede: nome_hospede || '',
+      colegio: colegio || '',
+      inicio_viagem: inicio_viagem || '',
+      fim_viagem: fim_viagem || '',
+      updated_at: new Date()
+    };
+
+    await quartoRef.set(dadosQuarto, { merge: true });
+
+    res.json({ success: true, message: 'Quarto atribuído com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao atribuir quarto:', error);
+    res.status(500).json({ success: false, message: 'Erro ao atribuir quarto.' });
+  }
+});
+
+// ✅ API PARA REMOVER QUARTO
+
+app.delete('/api/remover-quarto/:cpf', async (req, res) => {
+  try {
+    const { cpf } = req.params;
+    const cpfLimpo = String(cpf).replace(/\D/g, '');
+
+    const quartoRef = db.collection('quartos').doc(cpfLimpo);
+    const doc = await quartoRef.get();
+
+    if (doc.exists) {
+      // Remove apenas o campo numero_quarto, mantém os outros dados
+      await quartoRef.update({ numero_quarto: '' });
+    }
+
+    res.json({ success: true, message: 'Quarto removido com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao remover quarto:', error);
+    res.status(500).json({ success: false, message: 'Erro ao remover quarto.' });
+  }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
