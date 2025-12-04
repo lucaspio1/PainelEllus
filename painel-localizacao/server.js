@@ -281,19 +281,22 @@ app.get('/api/embarque-lista', async (req, res) => {
             cpf: dados.cpf,
             nome: dados.nome,
             rg: dados.cpf, // Usando CPF como RG para compatibilidade visual
-            
+            turma: dados.turma || '',
+
             // Logística
             onibus: dados.onibus || '',
             poltrona: '', // Campo não existente na importação atual, envia vazio
             emissor: '',
-            
+
             // Controle de Grupo (ESSENCIAIS PARA O QR CODE)
-            idPasseio: dados.idPasseio || '', 
-            colegio: dados.colegio || '', 
-            
-            // Status
+            idPasseio: dados.idPasseio || '',
+            colegio: dados.colegio || '',
+
+            // Status de Embarque e Retorno
+            embarque: dados.embarque || '',
+            retorno: dados.retorno || '',
             status_embarque: dados.embarque ? 'EMBARCADO' : 'PENDENTE',
-            
+
             // Facial
             facial_cadastrada: dados.facial_cadastrada || false,
             status_facial: dados.Facial || 'PENDENTE',
@@ -304,7 +307,7 @@ app.get('/api/embarque-lista', async (req, res) => {
         });
     });
 
-    res.json({ status: 'sucesso', data: listaEmbarque });
+    res.json({ status: 'sucesso', passageiros: listaEmbarque });
 
   } catch (error) {
     console.error('Erro API Embarque:', error.message);

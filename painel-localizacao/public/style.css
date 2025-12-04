@@ -141,8 +141,23 @@ details.school-accordion[open] summary { border-bottom: 1px solid #eee; backgrou
 .tag { font-size: 0.8rem; font-weight: 700; padding: 4px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 5px; }
 .tag-green { color: #15803d; background: #dcfce7; }
 .tag-red { color: #b91c1c; background: #fee2e2; }
+.tag-blue { color: #1e40af; background: #dbeafe; }
+.tag-gray { color: #6b7280; background: #f3f4f6; }
 .status-ok { border-left: 4px solid #22c55e; }
 .status-pending { border-left: 4px solid #ef4444; }
+
+/* Bus Accordion (Sub-accordion dentro do colégio) */
+.onibus-container { padding: 10px; background: #f9fafb; }
+details.bus-accordion { background: white; border-radius: 6px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e5e7eb; }
+details.bus-accordion summary { list-style: none; padding: 12px 15px; cursor: pointer; background: #ffffff; }
+details.bus-accordion summary::-webkit-details-marker { display: none; }
+details.bus-accordion[open] summary { border-bottom: 1px solid #e5e7eb; background: #f9fafb; }
+.bus-summary .summary-content { display: flex; justify-content: space-between; align-items: center; }
+.bus-name { font-weight: 600; color: #374151; font-size: 0.95rem; }
+.bus-stats { display: flex; gap: 12px; font-size: 0.85rem; }
+.stat-embarque { color: #059669; display: flex; align-items: center; gap: 4px; }
+.stat-retorno { color: #2563eb; display: flex; align-items: center; gap: 4px; }
+.st-status { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* -----------------------------------------------------
    TELA QUARTOS (Dashboard Antigo)
@@ -191,6 +206,13 @@ details.school-accordion[open] summary { border-bottom: 1px solid #eee; backgrou
 .context-menu button { width: 100%; text-align: left; padding: 12px 15px; background: none; border: none; cursor: pointer; font-size: 0.9rem; color: #333; border-bottom: 1px solid #f5f5f5; }
 .context-menu button:hover { background-color: #f0fdf4; color: var(--brand-dark-green); }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
+/* History Display Styles */
+.hist-row { display: flex; gap: 12px; padding: 10px; border-bottom: 1px solid #eee; align-items: center; background: #fafafa; margin-bottom: 5px; border-radius: 4px; }
+.hist-row:hover { background: #f0f0f0; }
+.hist-time { font-size: 0.85rem; color: #666; white-space: nowrap; min-width: 140px; font-family: monospace; }
+.hist-action { flex: 1; font-size: 0.9rem; color: #333; }
+.hist-op { font-size: 0.85rem; color: #888; display: flex; align-items: center; gap: 5px; }
 
 @media (max-width: 992px) {
   body { height: auto; overflow-y: auto; }

@@ -128,15 +128,23 @@ function limparCPF(cpf) {
 function formatarDataHora(isoString) {
   if (!isoString) return '--';
   try {
-    const data = new Date(isoString);
-    if (isNaN(data.getTime())) return isoString;
+    let data;
+    // Handle Firestore Timestamp objects (have _seconds and _nanoseconds or seconds and nanoseconds)
+    if (typeof isoString === 'object' && (isoString._seconds || isoString.seconds)) {
+      const seconds = isoString._seconds || isoString.seconds;
+      data = new Date(seconds * 1000);
+    } else {
+      data = new Date(isoString);
+    }
+
+    if (isNaN(data.getTime())) return String(isoString);
     const dia = String(data.getDate()).padStart(2, '0');
     const mes = String(data.getMonth() + 1).padStart(2, '0');
     const ano = data.getFullYear();
     const horas = String(data.getHours()).padStart(2, '0');
     const minutos = String(data.getMinutes()).padStart(2, '0');
     return `${dia}/${mes}/${ano} às ${horas}:${minutos}`;
-  } catch (e) { return isoString; }
+  } catch (e) { return String(isoString); }
 }
 
 function toggleVisualizacao() {
