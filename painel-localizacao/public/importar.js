@@ -187,8 +187,8 @@ async function buscarGrupos() {
     try {
         const res = await fetch(`/api/embarque-lista?inicio=${dataInicio}`);
         const json = await res.json();
-        if (json.status === 'sucesso') agruparDados(json.data);
-        else alert('Erro ao buscar dados: ' + (json.message || 'Desconhecido'));
+        if (json.status === 'sucesso') agruparDados(json.passageiros || []);
+        else alert('Erro ao buscar dados: ' + (json.mensagem || 'Desconhecido'));
     } catch (e) { console.error(e); alert('Erro na busca.'); }
     finally { toggleLoading(false); }
 }
