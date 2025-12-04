@@ -22,12 +22,14 @@ if (!admin.apps.length) {
       });
       console.log('✅ Firebase conectado via variáveis de ambiente');
     }
-    // Método 2: Application Default Credentials (automático no GCP)
-    else if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GCP_PROJECT) {
-      console.log('🔧 Inicializando Firebase com Application Default Credentials...');
-      admin.initializeApp({
-        projectId: process.env.GCP_PROJECT || process.env.FIREBASE_PROJECT_ID
-      });
+    // Método 2: Cloud Run / GCP - Application Default Credentials (automático)
+    else if (process.env.K_SERVICE || process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GCP_PROJECT) {
+      console.log('🔧 Inicializando Firebase com Application Default Credentials (Cloud Run/GCP)...');
+      const config = {};
+      if (process.env.GCP_PROJECT || process.env.FIREBASE_PROJECT_ID) {
+        config.projectId = process.env.GCP_PROJECT || process.env.FIREBASE_PROJECT_ID;
+      }
+      admin.initializeApp(config);
       console.log('✅ Firebase conectado via ADC (GCP)');
     }
     // Método 3: Arquivo serviceAccountKey.json (desenvolvimento local)
@@ -39,14 +41,21 @@ if (!admin.apps.length) {
       });
       console.log('✅ Firebase conectado via serviceAccountKey.json');
     }
-    // Erro: nenhuma credencial encontrada
+    // Método 4: Tentar ADC como último recurso (para ambientes GCP sem variáveis configuradas)
     else {
-      console.error('❌ ERRO: Nenhuma credencial Firebase encontrada!');
-      console.error('Configure uma das seguintes opções:');
-      console.error('1. Variáveis de ambiente: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY');
-      console.error('2. GCP ADC: GOOGLE_APPLICATION_CREDENTIALS ou rode no GCP');
-      console.error('3. Arquivo local: serviceAccountKey.json');
-      process.exit(1);
+      console.log('🔧 Tentando inicializar Firebase com Application Default Credentials...');
+      try {
+        admin.initializeApp();
+        console.log('✅ Firebase conectado via ADC padrão');
+      } catch (adcError) {
+        console.error('❌ ERRO: Nenhuma credencial Firebase encontrada!');
+        console.error('Configure uma das seguintes opções:');
+        console.error('1. Variáveis de ambiente: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY');
+        console.error('2. GCP ADC: GOOGLE_APPLICATION_CREDENTIALS ou rode no GCP');
+        console.error('3. Arquivo local: serviceAccountKey.json');
+        console.error('Erro ADC:', adcError.message);
+        process.exit(1);
+      }
     }
   } catch (error) {
     console.error('❌ Erro ao inicializar Firebase:', error.message);

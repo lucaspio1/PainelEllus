@@ -11,18 +11,11 @@ automatic_scaling:
   target_cpu_utilization: 0.65
 
 # Variáveis de ambiente
-# ⚠️ IMPORTANTE: Substitua os valores abaixo com suas credenciais reais
-# ⚠️ NÃO commite este arquivo com credenciais reais no git!
+# ⚠️ Usando Application Default Credentials (ADC) - Recomendado para GCP
 env_variables:
-  # Firebase Configuration
-  # Obtenha essas informações do Firebase Console > Configurações > Contas de serviço
-  FIREBASE_PROJECT_ID: "your-project-id"
-  FIREBASE_CLIENT_EMAIL: "firebase-adminsdk-xxxxx@your-project-id.iam.gserviceaccount.com"
-  FIREBASE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nYOUR_PRIVATE_KEY_HERE\n-----END PRIVATE KEY-----\n"
-
-  # Ou use esta opção para ADC (Application Default Credentials)
-  # Comente as 3 linhas acima e descomente esta:
-  # GCP_PROJECT: "your-project-id"
+  # Firebase/GCP Project ID (obtido do deployment)
+  GCP_PROJECT: "embarquellus-build"
+  FIREBASE_PROJECT_ID: "embarquellus-build"
 
 # Handlers (opcional - otimização)
 handlers:
