@@ -119,65 +119,119 @@ function renderizarListas(filtro = '', preservarEstado = false) {
         return;
     }
 
-    // 3. Agrupar por Colégio
-    const grupos = {};
+    // 3. Agrupar por Colégio e depois por Ônibus
+    const gruposColegio = {};
     filtrados.forEach(p => {
         const col = p.colegio || 'SEM COLÉGIO';
-        if (!grupos[col]) grupos[col] = [];
-        grupos[col].push(p);
+        if (!gruposColegio[col]) gruposColegio[col] = {};
+
+        const onibus = p.onibus || 'SEM ÔNIBUS';
+        if (!gruposColegio[col][onibus]) gruposColegio[col][onibus] = [];
+        gruposColegio[col][onibus].push(p);
     });
 
-    // 4. Criar HTML (Acordeão)
-    Object.keys(grupos).sort().forEach(colegio => {
-        const alunos = grupos[colegio];
-        const embarcados = alunos.filter(a => String(a.embarque).toUpperCase() === 'SIM').length;
-        const total = alunos.length;
+    // 4. Criar HTML (Acordeão duplo: Colégio > Ônibus)
+    Object.keys(gruposColegio).sort().forEach(colegio => {
+        const onibusGrupo = gruposColegio[colegio];
 
-        const details = document.createElement('details');
-        details.className = 'school-accordion';
-        
+        // Calcular totais do colégio
+        let totalColegio = 0;
+        let embarcadosColegio = 0;
+        let retornadosColegio = 0;
+
+        Object.keys(onibusGrupo).forEach(onibus => {
+            const alunos = onibusGrupo[onibus];
+            totalColegio += alunos.length;
+            embarcadosColegio += alunos.filter(a => String(a.embarque).toUpperCase() === 'SIM').length;
+            retornadosColegio += alunos.filter(a => String(a.retorno).toUpperCase() === 'SIM').length;
+        });
+
+        const detailsColegio = document.createElement('details');
+        detailsColegio.className = 'school-accordion';
+
         // Lógica de abertura: Se tem busca OU estava aberto antes (auto-refresh)
         if (termo.length > 0 || (preservarEstado && escolasAbertas.includes(colegio))) {
-            details.open = true;
+            detailsColegio.open = true;
         }
 
-        const summary = document.createElement('summary');
-        summary.innerHTML = `
+        const summaryColegio = document.createElement('summary');
+        summaryColegio.innerHTML = `
             <div class="summary-content">
                 <span class="school-name">${colegio}</span>
-                <span class="school-stats">${embarcados}/${total} Embarcados</span>
+                <span class="school-stats">
+                    <i class="fas fa-bus"></i> ${embarcadosColegio}/${totalColegio} Embarcados |
+                    <i class="fas fa-home"></i> ${retornadosColegio}/${totalColegio} Retornados
+                </span>
             </div>
             <div class="progress-bar-mini">
-                <div class="fill" style="width: ${(embarcados/total)*100}%"></div>
+                <div class="fill" style="width: ${(embarcadosColegio/totalColegio)*100}%"></div>
             </div>
         `;
 
-        const listDiv = document.createElement('div');
-        listDiv.className = 'student-list';
+        const onibusContainer = document.createElement('div');
+        onibusContainer.className = 'onibus-container';
 
-        alunos.forEach(aluno => {
-            const row = document.createElement('div');
-            const isEmbarcado = String(aluno.embarque).toUpperCase() === 'SIM';
-            
-            row.className = `student-row ${isEmbarcado ? 'status-ok' : 'status-pending'}`;
-            
-            row.innerHTML = `
-                <div class="st-info">
-                    <span class="st-name">${aluno.nome}</span>
-                    <span class="st-meta">CPF: ${aluno.cpf} | Ônibus: ${aluno.onibus}</span>
-                    ${aluno.turma ? `<span class="st-turma">${aluno.turma}</span>` : ''}
-                </div>
-                <div class="st-status">
-                    ${isEmbarcado 
-                        ? '<span class="tag tag-green"><i class="fas fa-check"></i> SIM</span>' 
-                        : '<span class="tag tag-red"><i class="fas fa-times"></i> NÃO</span>'}
+        // Para cada ônibus do colégio
+        Object.keys(onibusGrupo).sort().forEach(onibus => {
+            const alunos = onibusGrupo[onibus];
+            const embarcados = alunos.filter(a => String(a.embarque).toUpperCase() === 'SIM').length;
+            const retornados = alunos.filter(a => String(a.retorno).toUpperCase() === 'SIM').length;
+            const total = alunos.length;
+
+            const detailsOnibus = document.createElement('details');
+            detailsOnibus.className = 'bus-accordion';
+            if (termo.length > 0) {
+                detailsOnibus.open = true;
+            }
+
+            const summaryOnibus = document.createElement('summary');
+            summaryOnibus.className = 'bus-summary';
+            summaryOnibus.innerHTML = `
+                <div class="summary-content">
+                    <span class="bus-name"><i class="fas fa-bus"></i> Ônibus ${onibus}</span>
+                    <span class="bus-stats">
+                        <span class="stat-embarque"><i class="fas fa-arrow-right"></i> ${embarcados}/${total}</span>
+                        <span class="stat-retorno"><i class="fas fa-arrow-left"></i> ${retornados}/${total}</span>
+                    </span>
                 </div>
             `;
-            listDiv.appendChild(row);
+
+            const listDiv = document.createElement('div');
+            listDiv.className = 'student-list';
+
+            alunos.forEach(aluno => {
+                const row = document.createElement('div');
+                const isEmbarcado = String(aluno.embarque).toUpperCase() === 'SIM';
+                const isRetornado = String(aluno.retorno).toUpperCase() === 'SIM';
+
+                row.className = `student-row ${isEmbarcado ? 'status-ok' : 'status-pending'}`;
+
+                row.innerHTML = `
+                    <div class="st-info">
+                        <span class="st-name">${aluno.nome}</span>
+                        <span class="st-meta">CPF: ${aluno.cpf}${aluno.turma ? ` | Turma: ${aluno.turma}` : ''}</span>
+                    </div>
+                    <div class="st-status">
+                        <span class="tag ${isEmbarcado ? 'tag-green' : 'tag-gray'}">
+                            <i class="fas ${isEmbarcado ? 'fa-check' : 'fa-times'}"></i>
+                            Embarque: ${isEmbarcado ? 'SIM' : 'NÃO'}
+                        </span>
+                        <span class="tag ${isRetornado ? 'tag-blue' : 'tag-gray'}">
+                            <i class="fas ${isRetornado ? 'fa-check' : 'fa-times'}"></i>
+                            Retorno: ${isRetornado ? 'SIM' : 'NÃO'}
+                        </span>
+                    </div>
+                `;
+                listDiv.appendChild(row);
+            });
+
+            detailsOnibus.appendChild(summaryOnibus);
+            detailsOnibus.appendChild(listDiv);
+            onibusContainer.appendChild(detailsOnibus);
         });
 
-        details.appendChild(summary);
-        details.appendChild(listDiv);
-        container.appendChild(details);
+        detailsColegio.appendChild(summaryColegio);
+        detailsColegio.appendChild(onibusContainer);
+        container.appendChild(detailsColegio);
     });
 }
