@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HOMELIST - Atribuir Quartos - Ellus</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    .homelist-container { max-width: 1400px; margin: 20px auto; padding: 20px; }
+    .filters-section { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .filters-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px; }
+    .filter-group label { display: block; font-weight: 600; margin-bottom: 5px; color: #555; font-size: 0.9rem; }
+    .filter-group input, .filter-group select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.95rem; }
+    .students-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 15px; }
+    .student-card { background: white; border-radius: 8px; padding: 15px; border: 2px solid #eee; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .student-card:hover { border-color: var(--brand-light-green); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    .student-card.with-room { border-color: #22c55e; background: #f0fdf4; }
+    .student-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+    .student-name { font-weight: 700; font-size: 1rem; color: #333; }
+    .student-info { font-size: 0.85rem; color: #666; margin-bottom: 8px; }
+    .room-input-group { display: flex; gap: 8px; margin-top: 10px; }
+    .room-input { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.95rem; }
+    .btn-save-room { padding: 8px 15px; background: var(--brand-dark-green); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s; }
+    .btn-save-room:hover { background: #4a5f32; }
+    .btn-remove-room { padding: 8px; background: #dc2626; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    .btn-remove-room:hover { background: #b91c1c; }
+    .room-display { background: #dcfce7; color: #15803d; padding: 8px 12px; border-radius: 6px; font-weight: 600; text-align: center; margin-top: 10px; }
+    .stats-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px; }
+    .stat-card { background: white; padding: 15px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-bottom: 3px solid #ddd; }
+    .stat-card.total { border-color: var(--brand-dark-green); }
+    .stat-card.with-room { border-color: #22c55e; }
+    .stat-card.without-room { border-color: #ef4444; }
+    .stat-value { font-size: 2rem; font-weight: 700; color: #333; }
+    .stat-label { font-size: 0.85rem; color: #666; margin-top: 5px; }
+  </style>
+</head>
+<body>
+
+  <header class="top-bar">
+    <div class="logo-area">
+      <img src="icon.png" alt="Ellus" class="logo-img">
+      <span style="font-weight:bold; margin-left:10px; color:var(--brand-dark-green)">HOMELIST - Atribuir Quartos</span>
+    </div>
+    <div>
+      <a href="/home" class="btn btn-sm btn-outline"><i class="fas fa-home"></i> Voltar</a>
+    </div>
+  </header>
+
+  <div class="homelist-container">
+
+    <!-- Filtros -->
+    <div class="filters-section">
+      <h3><i class="fas fa-filter"></i> Filtros de Busca</h3>
+      <div class="filters-grid">
+        <div class="filter-group">
+          <label>Data Início Viagem</label>
+          <input type="date" id="filterInicio">
+        </div>
+        <div class="filter-group">
+          <label>Data Fim Viagem</label>
+          <input type="date" id="filterFim">
+        </div>
+        <div class="filter-group">
+          <label>Colégio</label>
+          <select id="filterColegio">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Pesquisar Aluno</label>
+          <input type="text" id="filterNome" placeholder="Nome ou CPF">
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button class="btn btn-primary" onclick="buscarAlunos()">
+          <i class="fas fa-search"></i> Buscar Alunos
+        </button>
+        <button class="btn btn-secondary" onclick="limparFiltros()">
+          <i class="fas fa-redo"></i> Limpar
+        </button>
+      </div>
+    </div>
+
+    <!-- Estatísticas -->
+    <div class="stats-summary" id="statsContainer" style="display: none;">
+      <div class="stat-card total">
+        <div class="stat-value" id="statTotal">0</div>
+        <div class="stat-label">Total de Alunos</div>
+      </div>
+      <div class="stat-card with-room">
+        <div class="stat-value" id="statComQuarto">0</div>
+        <div class="stat-label">Com Quarto</div>
+      </div>
+      <div class="stat-card without-room">
+        <div class="stat-value" id="statSemQuarto">0</div>
+        <div class="stat-label">Sem Quarto</div>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loadingHomelist" class="loading-spinner hidden">
+      <i class="fas fa-spinner fa-spin"></i> Carregando alunos...
+    </div>
+
+    <!-- Grid de Alunos -->
+    <div id="studentsGrid" class="students-grid"></div>
+
+    <div id="emptyState" style="text-align:center; padding: 60px 20px; color: #999; display: none;">
+      <i class="fas fa-search" style="font-size: 3rem; margin-bottom: 20px; opacity: 0.5;"></i>
+      <p style="font-size: 1.1rem;">Use os filtros acima para buscar alunos e atribuir quartos</p>
+    </div>
+
+  </div>
+
+  <div id="loadingOverlay" class="loading-overlay hidden">
+    <div class="spinner"></div>
+    <p id="loadingText">Processando...</p>
+  </div>
+
+  <script src="homelist.js"></script>
+</body>
+</html>

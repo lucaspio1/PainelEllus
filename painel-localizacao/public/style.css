@@ -112,6 +112,9 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 .menu-card:hover .menu-icon-box { transform: scale(1.1); }
 .icon-bed { background: #f0fdf4; color: var(--brand-dark-green); }
 .icon-bus { background: #fff7ed; color: var(--col-fora); }
+.icon-import { background: #dcfce7; color: #15803d; }
+.icon-homelist { background: #dbeafe; color: #1e40af; }
+.icon-users { background: #fef3c7; color: #d97706; }
 .menu-title { font-size: 1.6rem; font-weight: 800; margin-bottom: 10px; color: var(--brand-dark-green); }
 .menu-desc { color: #666; font-size: 1rem; line-height: 1.5; }
 .menu-arrow { margin-top: 30px; font-size: 1.5rem; color: #ddd; transition: 0.3s; }
