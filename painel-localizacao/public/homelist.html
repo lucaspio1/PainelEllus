@@ -16,9 +16,11 @@
     .main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; flex: 1; min-height: 0; }
     .students-section { background: white; border-radius: 8px; padding: 20px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .students-list { flex: 1; overflow-y: auto; margin-top: 15px; }
-    .student-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border: 2px solid #eee; border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: all 0.2s; }
+    .student-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border: 2px solid #eee; border-radius: 8px; margin-bottom: 10px; transition: all 0.2s; }
     .student-item:hover { border-color: var(--brand-light-green); background: #f9fdf9; }
     .student-item.selected { border-color: var(--brand-dark-green); background: #f0fdf4; }
+    .student-checkbox { margin-right: 15px; width: 20px; height: 20px; cursor: pointer; }
+    .student-content { flex: 1; cursor: pointer; }
     .student-item.has-room { background: #dcfce7; border-color: #22c55e; }
     .student-item.has-room .room-badge { background: #15803d; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.85rem; font-weight: 600; }
     .student-name { font-weight: 600; font-size: 0.95rem; color: #333; }
@@ -93,9 +95,12 @@
 
       <!-- Lista de Alunos -->
       <div class="students-section">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
           <h3><i class="fas fa-list"></i> Alunos Encontrados</h3>
-          <div class="stats-mini">
+          <button class="btn btn-sm btn-outline" onclick="limparSelecao()" id="btnLimparSelecao" style="display: none;">
+            <i class="fas fa-times"></i> Limpar Seleção
+          </button>
+          <div class="stats-mini" style="width: 100%;">
             <div class="stat-mini">
               <div class="stat-mini-value" id="statTotal">0</div>
               <div class="stat-mini-label">Total</div>
@@ -107,6 +112,10 @@
             <div class="stat-mini" style="background: #fee2e2;">
               <div class="stat-mini-value" style="color: #b91c1c;" id="statSemQuarto">0</div>
               <div class="stat-mini-label">Sem Quarto</div>
+            </div>
+            <div class="stat-mini" style="background: #dbeafe;">
+              <div class="stat-mini-value" style="color: #1e40af;" id="statSelecionados">0</div>
+              <div class="stat-mini-label">Selecionados</div>
             </div>
           </div>
         </div>
@@ -129,13 +138,12 @@
 
         <div id="panelEmpty" class="panel-empty">
           <i class="fas fa-hand-pointer"></i>
-          <p>Selecione um aluno da lista ao lado para atribuir ou editar o quarto</p>
+          <p>Selecione um ou mais alunos da lista ao lado para atribuir quartos</p>
         </div>
 
         <div id="panelForm" style="display: none;">
-          <div class="selected-student-card">
-            <div style="font-weight: 600; font-size: 1.1rem; margin-bottom: 8px;" id="selectedName">Nome do Aluno</div>
-            <div style="font-size: 0.9rem; color: #666;" id="selectedInfo">Informações</div>
+          <div class="selected-student-card" id="selectedStudentsList">
+            <!-- Aqui serão listados os alunos selecionados -->
           </div>
 
           <label style="font-weight: 600; margin-bottom: 10px; display: block; color: #555;">
@@ -147,12 +155,12 @@
                  placeholder="Digite o número do quarto"
                  maxlength="10">
 
-          <button class="btn-large btn-save-large" onclick="salvarQuarto()">
-            <i class="fas fa-save"></i> Salvar Quarto
+          <button class="btn-large btn-save-large" onclick="salvarQuartos()">
+            <i class="fas fa-save"></i> <span id="btnSalvarTexto">Salvar Quarto</span>
           </button>
 
-          <button id="btnRemoveRoom" class="btn-large btn-remove-large" style="display: none;" onclick="removerQuarto()">
-            <i class="fas fa-trash"></i> Remover Quarto
+          <button id="btnRemoveRoom" class="btn-large btn-remove-large" style="display: none;" onclick="removerQuartos()">
+            <i class="fas fa-trash"></i> <span id="btnRemoverTexto">Remover Quarto</span>
           </button>
         </div>
       </div>

@@ -1,6 +1,6 @@
 let alunosData = [];
 let colegios = new Set();
-let alunoSelecionado = null;
+let alunosSelecionados = [];
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('emptyStudents').style.display = 'block';
@@ -52,19 +52,23 @@ async function buscarAlunos() {
             const alunos = jsonEmbarques.passageiros || [];
             const quartos = jsonQuartos.data || [];
 
-            // Cria map de quartos por CPF
+            // Cria map de quartos por CPF normalizado (sem máscara)
             const quartosMap = new Map();
             quartos.forEach(q => {
                 if (q.cpf && q.numero_quarto) {
-                    quartosMap.set(q.cpf, q.numero_quarto);
+                    const cpfNormalizado = String(q.cpf).replace(/\D/g, '');
+                    quartosMap.set(cpfNormalizado, q.numero_quarto);
                 }
             });
 
             // Adiciona numero_quarto aos alunos
-            alunosData = alunos.map(a => ({
-                ...a,
-                numero_quarto: quartosMap.get(a.cpf) || ''
-            }));
+            alunosData = alunos.map(a => {
+                const cpfNormalizado = String(a.cpf).replace(/\D/g, '');
+                return {
+                    ...a,
+                    numero_quarto: quartosMap.get(cpfNormalizado) || ''
+                };
+            });
 
             // Popula lista de colégios
             colegios.clear();
@@ -115,14 +119,14 @@ function renderizarLista() {
     if (filtrados.length === 0 && alunosData.length === 0) {
         studentsList.innerHTML = '';
         emptyState.style.display = 'block';
-        atualizarEstatisticas(0, 0, 0);
+        atualizarEstatisticas(0, 0, 0, 0);
         return;
     }
 
     if (filtrados.length === 0) {
         studentsList.innerHTML = '<p style="text-align:center; padding:40px; color:#999;">Nenhum aluno encontrado com esses filtros.</p>';
         emptyState.style.display = 'none';
-        atualizarEstatisticas(0, 0, 0);
+        atualizarEstatisticas(0, 0, 0, 0);
         return;
     }
 
@@ -132,8 +136,9 @@ function renderizarLista() {
     const total = filtrados.length;
     const comQuarto = filtrados.filter(a => a.numero_quarto).length;
     const semQuarto = total - comQuarto;
+    const selecionados = alunosSelecionados.length;
 
-    atualizarEstatisticas(total, comQuarto, semQuarto);
+    atualizarEstatisticas(total, comQuarto, semQuarto, selecionados);
 
     // Renderiza lista
     studentsList.innerHTML = '';
@@ -143,34 +148,52 @@ function renderizarLista() {
     });
 }
 
-function atualizarEstatisticas(total, comQuarto, semQuarto) {
+function atualizarEstatisticas(total, comQuarto, semQuarto, selecionados) {
     document.getElementById('statTotal').textContent = total;
     document.getElementById('statComQuarto').textContent = comQuarto;
     document.getElementById('statSemQuarto').textContent = semQuarto;
+    document.getElementById('statSelecionados').textContent = selecionados;
 }
 
 function criarItemAluno(aluno) {
     const div = document.createElement('div');
-    div.className = `student-item ${aluno.numero_quarto ? 'has-room' : ''}`;
+    const cpfNormalizado = String(aluno.cpf).replace(/\D/g, '');
+    const isSelecionado = alunosSelecionados.some(a => String(a.cpf).replace(/\D/g, '') === cpfNormalizado);
+
+    div.className = `student-item ${aluno.numero_quarto ? 'has-room' : ''} ${isSelecionado ? 'selected' : ''}`;
 
     const cpfFormatted = formatarCPF(aluno.cpf);
 
-    div.innerHTML = `
-        <div>
-            <div class="student-name">${aluno.nome}</div>
-            <div class="student-info">
-                CPF: ${cpfFormatted} | ${aluno.colegio || 'Sem colégio'}${aluno.turma ? ` | ${aluno.turma}` : ''}
-            </div>
-        </div>
-        <div>
-            ${aluno.numero_quarto ?
-                `<span class="room-badge"><i class="fas fa-door-open"></i> Quarto ${aluno.numero_quarto}</span>` :
-                `<i class="fas fa-circle" style="color: #ef4444; font-size: 0.8rem;"></i>`
-            }
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'student-checkbox';
+    checkbox.checked = isSelecionado;
+    checkbox.onclick = (e) => {
+        e.stopPropagation();
+        toggleSelecaoAluno(aluno);
+    };
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'student-content';
+    contentDiv.onclick = () => toggleSelecaoAluno(aluno);
+    contentDiv.innerHTML = `
+        <div class="student-name">${aluno.nome}</div>
+        <div class="student-info">
+            CPF: ${cpfFormatted} | ${aluno.colegio || 'Sem colégio'}${aluno.turma ? ` | ${aluno.turma}` : ''}
         </div>
     `;
 
-    div.onclick = () => selecionarAluno(aluno);
+    const badgeDiv = document.createElement('div');
+    badgeDiv.innerHTML = `
+        ${aluno.numero_quarto ?
+            `<span class="room-badge"><i class="fas fa-door-open"></i> Quarto ${aluno.numero_quarto}</span>` :
+            `<i class="fas fa-circle" style="color: #ef4444; font-size: 0.8rem;"></i>`
+        }
+    `;
+
+    div.appendChild(checkbox);
+    div.appendChild(contentDiv);
+    div.appendChild(badgeDiv);
 
     return div;
 }
@@ -184,43 +207,88 @@ function formatarCPF(cpf) {
     return cpf;
 }
 
-function selecionarAluno(aluno) {
-    alunoSelecionado = aluno;
+function toggleSelecaoAluno(aluno) {
+    const cpfNormalizado = String(aluno.cpf).replace(/\D/g, '');
+    const index = alunosSelecionados.findIndex(a => String(a.cpf).replace(/\D/g, '') === cpfNormalizado);
 
-    // Remove seleção anterior
-    document.querySelectorAll('.student-item').forEach(item => {
-        item.classList.remove('selected');
-    });
-
-    // Adiciona seleção ao item clicado
-    event.currentTarget.classList.add('selected');
-
-    // Mostra painel de atribuição
-    document.getElementById('panelEmpty').style.display = 'none';
-    document.getElementById('panelForm').style.display = 'block';
-
-    // Preenche informações
-    document.getElementById('selectedName').textContent = aluno.nome;
-    document.getElementById('selectedInfo').innerHTML = `
-        CPF: ${formatarCPF(aluno.cpf)}<br>
-        Colégio: ${aluno.colegio || 'Não informado'}<br>
-        Turma: ${aluno.turma || 'Não informado'}<br>
-        Viagem: ${aluno.inicio_viagem || '--'} até ${aluno.fim_viagem || '--'}
-    `;
-
-    // Preenche campo de quarto
-    document.getElementById('roomInput').value = aluno.numero_quarto || '';
-
-    // Mostra/esconde botão de remover
-    if (aluno.numero_quarto) {
-        document.getElementById('btnRemoveRoom').style.display = 'block';
+    if (index !== -1) {
+        // Remove da seleção
+        alunosSelecionados.splice(index, 1);
     } else {
-        document.getElementById('btnRemoveRoom').style.display = 'none';
+        // Adiciona à seleção
+        alunosSelecionados.push(aluno);
     }
+
+    // Atualiza a UI
+    atualizarPainelAtribuicao();
+    renderizarLista();
 }
 
-async function salvarQuarto() {
-    if (!alunoSelecionado) return;
+function limparSelecao() {
+    alunosSelecionados = [];
+    atualizarPainelAtribuicao();
+    renderizarLista();
+}
+
+function atualizarPainelAtribuicao() {
+    const panelEmpty = document.getElementById('panelEmpty');
+    const panelForm = document.getElementById('panelForm');
+    const btnLimparSelecao = document.getElementById('btnLimparSelecao');
+    const selectedStudentsList = document.getElementById('selectedStudentsList');
+    const btnRemoveRoom = document.getElementById('btnRemoveRoom');
+    const btnSalvarTexto = document.getElementById('btnSalvarTexto');
+    const btnRemoverTexto = document.getElementById('btnRemoverTexto');
+
+    if (alunosSelecionados.length === 0) {
+        panelEmpty.style.display = 'block';
+        panelForm.style.display = 'none';
+        btnLimparSelecao.style.display = 'none';
+        return;
+    }
+
+    panelEmpty.style.display = 'none';
+    panelForm.style.display = 'block';
+    btnLimparSelecao.style.display = 'inline-block';
+
+    // Atualiza texto dos botões
+    if (alunosSelecionados.length === 1) {
+        btnSalvarTexto.textContent = 'Salvar Quarto';
+        btnRemoverTexto.textContent = 'Remover Quarto';
+    } else {
+        btnSalvarTexto.textContent = `Salvar Quartos (${alunosSelecionados.length})`;
+        btnRemoverTexto.textContent = `Remover Quartos (${alunosSelecionados.length})`;
+    }
+
+    // Monta lista de alunos selecionados
+    selectedStudentsList.innerHTML = '';
+    alunosSelecionados.forEach((aluno, idx) => {
+        const card = document.createElement('div');
+        card.style.cssText = 'padding: 10px; margin-bottom: 8px; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb;';
+        card.innerHTML = `
+            <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 4px;">${idx + 1}. ${aluno.nome}</div>
+            <div style="font-size: 0.85rem; color: #666;">
+                CPF: ${formatarCPF(aluno.cpf)} | ${aluno.colegio || 'N/A'}
+                ${aluno.numero_quarto ? `<br><strong>Quarto Atual: ${aluno.numero_quarto}</strong>` : ''}
+            </div>
+        `;
+        selectedStudentsList.appendChild(card);
+    });
+
+    // Define valor do campo de quarto
+    if (alunosSelecionados.length === 1) {
+        document.getElementById('roomInput').value = alunosSelecionados[0].numero_quarto || '';
+    } else {
+        document.getElementById('roomInput').value = '';
+        document.getElementById('roomInput').placeholder = `Digite o quarto para ${alunosSelecionados.length} alunos`;
+    }
+
+    // Mostra/esconde botão de remover
+    const todosTemQuarto = alunosSelecionados.every(a => a.numero_quarto);
+    btnRemoveRoom.style.display = todosTemQuarto ? 'block' : 'none';
+}
+
+async function salvarQuartos() {
+    if (alunosSelecionados.length === 0) return;
 
     const numeroQuarto = document.getElementById('roomInput').value.trim();
 
@@ -228,43 +296,61 @@ async function salvarQuarto() {
         return alert('⚠️ Digite o número do quarto.');
     }
 
-    if (!confirm(`Atribuir quarto "${numeroQuarto}" para ${alunoSelecionado.nome}?`)) {
+    const qtd = alunosSelecionados.length;
+    const nomes = qtd === 1 ? alunosSelecionados[0].nome : `${qtd} alunos`;
+
+    if (!confirm(`Atribuir quarto "${numeroQuarto}" para ${nomes}?`)) {
         return;
     }
 
-    toggleLoading(true, 'Salvando quarto...');
+    toggleLoading(true, `Salvando quarto${qtd > 1 ? 's' : ''}...`);
 
     try {
-        const res = await fetch('/api/atribuir-quarto', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                cpf: alunoSelecionado.cpf,
-                numero_quarto: numeroQuarto,
-                nome_hospede: alunoSelecionado.nome,
-                colegio: alunoSelecionado.colegio,
-                inicio_viagem: alunoSelecionado.inicio_viagem,
-                fim_viagem: alunoSelecionado.fim_viagem
-            })
-        });
+        let sucessos = 0;
+        let erros = 0;
 
-        const json = await res.json();
+        for (const aluno of alunosSelecionados) {
+            try {
+                const res = await fetch('/api/atribuir-quarto', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        cpf: aluno.cpf,
+                        numero_quarto: numeroQuarto,
+                        nome_hospede: aluno.nome,
+                        colegio: aluno.colegio,
+                        inicio_viagem: aluno.inicio_viagem,
+                        fim_viagem: aluno.fim_viagem
+                    })
+                });
 
-        if (json.success) {
-            alert('✅ Quarto atribuído com sucesso!');
-            // Atualiza localmente
-            alunoSelecionado.numero_quarto = numeroQuarto;
-            // Atualiza no array
-            const index = alunosData.findIndex(a => a.cpf === alunoSelecionado.cpf);
-            if (index !== -1) {
-                alunosData[index].numero_quarto = numeroQuarto;
+                const json = await res.json();
+
+                if (json.success) {
+                    sucessos++;
+                    // Atualiza localmente
+                    aluno.numero_quarto = numeroQuarto;
+                    // Atualiza no array
+                    const cpfNormalizado = String(aluno.cpf).replace(/\D/g, '');
+                    const index = alunosData.findIndex(a => String(a.cpf).replace(/\D/g, '') === cpfNormalizado);
+                    if (index !== -1) {
+                        alunosData[index].numero_quarto = numeroQuarto;
+                    }
+                } else {
+                    erros++;
+                }
+            } catch (err) {
+                console.error(err);
+                erros++;
             }
-            // Recarrega a lista
-            renderizarLista();
-            // Reseleciona o aluno para atualizar o painel
-            selecionarAluno(alunoSelecionado);
+        }
+
+        if (sucessos > 0) {
+            alert(`✅ ${sucessos} quarto${sucessos > 1 ? 's atribuídos' : ' atribuído'} com sucesso!${erros > 0 ? `\n⚠️ ${erros} erro${erros > 1 ? 's' : ''}.` : ''}`);
+            // Limpa seleção e recarrega
+            limparSelecao();
         } else {
-            alert('❌ Erro: ' + (json.message || 'Erro desconhecido'));
+            alert('❌ Erro ao atribuir quartos.');
         }
     } catch (error) {
         console.error(error);
@@ -274,37 +360,55 @@ async function salvarQuarto() {
     }
 }
 
-async function removerQuarto() {
-    if (!alunoSelecionado) return;
+async function removerQuartos() {
+    if (alunosSelecionados.length === 0) return;
 
-    if (!confirm(`⚠️ Remover o quarto ${alunoSelecionado.numero_quarto} de ${alunoSelecionado.nome}?`)) {
+    const qtd = alunosSelecionados.length;
+    const nomes = qtd === 1 ? alunosSelecionados[0].nome : `${qtd} alunos`;
+
+    if (!confirm(`⚠️ Remover o${qtd > 1 ? 's' : ''} quarto${qtd > 1 ? 's' : ''} de ${nomes}?`)) {
         return;
     }
 
-    toggleLoading(true, 'Removendo quarto...');
+    toggleLoading(true, `Removendo quarto${qtd > 1 ? 's' : ''}...`);
 
     try {
-        const res = await fetch(`/api/remover-quarto/${alunoSelecionado.cpf}`, {
-            method: 'DELETE'
-        });
+        let sucessos = 0;
+        let erros = 0;
 
-        const json = await res.json();
+        for (const aluno of alunosSelecionados) {
+            try {
+                const cpfNormalizado = String(aluno.cpf).replace(/\D/g, '');
+                const res = await fetch(`/api/remover-quarto/${cpfNormalizado}`, {
+                    method: 'DELETE'
+                });
 
-        if (json.success) {
-            alert('✅ Quarto removido com sucesso!');
-            // Atualiza localmente
-            alunoSelecionado.numero_quarto = '';
-            // Atualiza no array
-            const index = alunosData.findIndex(a => a.cpf === alunoSelecionado.cpf);
-            if (index !== -1) {
-                alunosData[index].numero_quarto = '';
+                const json = await res.json();
+
+                if (json.success) {
+                    sucessos++;
+                    // Atualiza localmente
+                    aluno.numero_quarto = '';
+                    // Atualiza no array
+                    const index = alunosData.findIndex(a => String(a.cpf).replace(/\D/g, '') === cpfNormalizado);
+                    if (index !== -1) {
+                        alunosData[index].numero_quarto = '';
+                    }
+                } else {
+                    erros++;
+                }
+            } catch (err) {
+                console.error(err);
+                erros++;
             }
-            // Recarrega a lista
-            renderizarLista();
-            // Reseleciona o aluno para atualizar o painel
-            selecionarAluno(alunoSelecionado);
+        }
+
+        if (sucessos > 0) {
+            alert(`✅ ${sucessos} quarto${sucessos > 1 ? 's removidos' : ' removido'} com sucesso!${erros > 0 ? `\n⚠️ ${erros} erro${erros > 1 ? 's' : ''}.` : ''}`);
+            // Limpa seleção e recarrega
+            limparSelecao();
         } else {
-            alert('❌ Erro: ' + (json.message || 'Erro desconhecido'));
+            alert('❌ Erro ao remover quartos.');
         }
     } catch (error) {
         console.error(error);
