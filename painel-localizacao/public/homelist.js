@@ -52,23 +52,44 @@ async function buscarAlunos() {
             const alunos = jsonEmbarques.passageiros || [];
             const quartos = jsonQuartos.data || [];
 
+            console.log('Total de alunos:', alunos.length);
+            console.log('Total de quartos:', quartos.length);
+
             // Cria map de quartos por CPF normalizado (sem máscara)
             const quartosMap = new Map();
             quartos.forEach(q => {
-                if (q.cpf && q.numero_quarto) {
-                    const cpfNormalizado = String(q.cpf).replace(/\D/g, '');
-                    quartosMap.set(cpfNormalizado, q.numero_quarto);
+                // Tenta normalizar o CPF de várias formas
+                let cpfNormalizado = '';
+                if (q.cpf || q.CPF) {
+                    cpfNormalizado = String(q.cpf || q.CPF).replace(/\D/g, '');
+                }
+
+                const numeroQuarto = q.numero_quarto || q.Quarto || q.quarto || '';
+
+                if (cpfNormalizado && numeroQuarto) {
+                    quartosMap.set(cpfNormalizado, numeroQuarto);
                 }
             });
 
+            console.log('Quartos mapeados:', quartosMap.size);
+            console.log('Exemplo de CPFs no mapa:', Array.from(quartosMap.keys()).slice(0, 5));
+
             // Adiciona numero_quarto aos alunos
             alunosData = alunos.map(a => {
-                const cpfNormalizado = String(a.cpf).replace(/\D/g, '');
+                let cpfNormalizado = '';
+                if (a.cpf || a.CPF) {
+                    cpfNormalizado = String(a.cpf || a.CPF).replace(/\D/g, '');
+                }
+
+                const numeroQuarto = quartosMap.get(cpfNormalizado) || '';
+
                 return {
                     ...a,
-                    numero_quarto: quartosMap.get(cpfNormalizado) || ''
+                    numero_quarto: numeroQuarto
                 };
             });
+
+            console.log('Alunos com quarto:', alunosData.filter(a => a.numero_quarto).length);
 
             // Popula lista de colégios
             colegios.clear();
