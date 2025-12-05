@@ -617,6 +617,21 @@ app.post('/api/atribuir-quarto', async (req, res) => {
     }
 
     const cpfLimpo = String(cpf).replace(/\D/g, '');
+
+    // 1. Busca e remove TODOS os documentos existentes com este CPF (para evitar duplicatas)
+    const querySnapshot = await db.collection('quartos').where('cpf', '==', cpfLimpo).get();
+    const deletePromises = [];
+    querySnapshot.forEach(doc => {
+      console.log(`Removendo documento antigo com ID: ${doc.id} para CPF: ${cpfLimpo}`);
+      deletePromises.push(doc.ref.delete());
+    });
+
+    if (deletePromises.length > 0) {
+      await Promise.all(deletePromises);
+      console.log(`${deletePromises.length} documento(s) antigo(s) removido(s) para CPF: ${cpfLimpo}`);
+    }
+
+    // 2. Cria novo documento usando CPF como ID
     const quartoRef = db.collection('quartos').doc(cpfLimpo);
 
     const dadosQuarto = {
@@ -626,10 +641,11 @@ app.post('/api/atribuir-quarto', async (req, res) => {
       colegio: colegio || '',
       inicio_viagem: inicio_viagem || '',
       fim_viagem: fim_viagem || '',
+      created_at: new Date(),
       updated_at: new Date()
     };
 
-    await quartoRef.set(dadosQuarto, { merge: true });
+    await quartoRef.set(dadosQuarto);
 
     res.json({ success: true, message: 'Quarto atribuído com sucesso!' });
   } catch (error) {
@@ -645,12 +661,18 @@ app.delete('/api/remover-quarto/:cpf', async (req, res) => {
     const { cpf } = req.params;
     const cpfLimpo = String(cpf).replace(/\D/g, '');
 
-    const quartoRef = db.collection('quartos').doc(cpfLimpo);
-    const doc = await quartoRef.get();
+    // Busca e remove TODOS os documentos existentes com este CPF
+    const querySnapshot = await db.collection('quartos').where('cpf', '==', cpfLimpo).get();
+    const deletePromises = [];
 
-    if (doc.exists) {
-      // Remove apenas o campo numero_quarto, mantém os outros dados
-      await quartoRef.update({ numero_quarto: '' });
+    querySnapshot.forEach(doc => {
+      console.log(`Removendo quarto com ID: ${doc.id} para CPF: ${cpfLimpo}`);
+      deletePromises.push(doc.ref.delete());
+    });
+
+    if (deletePromises.length > 0) {
+      await Promise.all(deletePromises);
+      console.log(`${deletePromises.length} quarto(s) removido(s) para CPF: ${cpfLimpo}`);
     }
 
     res.json({ success: true, message: 'Quarto removido com sucesso!' });
