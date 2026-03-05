@@ -3,7 +3,7 @@ let usuariosData = [];
 document.addEventListener('DOMContentLoaded', () => {
     carregarUsuarios();
 
-    // Máscara para CPF
+    // Máscara para CPF no Modal
     document.getElementById('inputCpf').addEventListener('input', (e) => {
         let value = e.target.value.replace(/\D/g, '');
         if (value.length <= 11) {
@@ -13,6 +13,12 @@ document.addEventListener('DOMContentLoaded', () => {
             e.target.value = value;
         }
     });
+
+    // Evento de Pesquisa Dinâmica
+    const inputPesquisa = document.getElementById('pesquisaUsuario');
+    if (inputPesquisa) {
+        inputPesquisa.addEventListener('input', renderizarUsuarios);
+    }
 });
 
 async function carregarUsuarios() {
@@ -37,6 +43,53 @@ async function carregarUsuarios() {
     } finally {
         loading.classList.add('hidden');
     }
+}
+
+function renderizarUsuarios() {
+    const tbody = document.getElementById('usuariosBody');
+    
+    // Pega o valor digitado no campo de pesquisa
+    const inputPesquisa = document.getElementById('pesquisaUsuario');
+    const termo = inputPesquisa ? inputPesquisa.value.toLowerCase().trim() : '';
+    const termoNumerico = termo.replace(/\D/g, ''); // Facilita buscar CPF apenas digitando números
+
+    // Filtra os usuários dinamicamente
+    const filtrados = usuariosData.filter(user => {
+        const matchNome = (user.nome || '').toLowerCase().includes(termo);
+        const matchCpfNumerico = termoNumerico.length > 0 && (user.cpf || '').includes(termoNumerico);
+        const matchCpfFormatado = formatarCPF(user.cpf).includes(termo);
+
+        return termo === '' || matchNome || matchCpfNumerico || matchCpfFormatado;
+    });
+
+    if (filtrados.length === 0) {
+        if (usuariosData.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 40px;">Nenhum usuário cadastrado no sistema</td></tr>';
+        } else {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 40px;">Nenhum usuário encontrado na pesquisa</td></tr>';
+        }
+        return;
+    }
+
+    tbody.innerHTML = '';
+    filtrados.forEach(user => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong>${user.nome}</strong></td>
+            <td>${formatarCPF(user.cpf)}</td>
+            <td><span class="badge-perfil">${user.perfil || 'USER'}</span></td>
+            <td><span class="${user.ativo ? 'badge-ativo' : 'badge-inativo'}">${user.ativo ? 'Ativo' : 'Inativo'}</span></td>
+            <td style="text-align:center">
+                <button class="btn-icon edit" onclick='editarUsuario(${JSON.stringify(user)})' title="Editar">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn-icon delete" onclick="excluirUsuario('${user.cpf}')" title="Excluir">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
 }
 
 function renderizarUsuarios() {
