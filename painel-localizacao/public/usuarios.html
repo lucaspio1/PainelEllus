@@ -43,10 +43,16 @@
 
   <div class="usuarios-container">
     <div class="header-actions">
+ <div class="header-actions">
+   
       <h2><i class="fas fa-users"></i> Usuários do Sistema</h2>
-      <button class="btn btn-primary" onclick="abrirModalNovo()">
-        <i class="fas fa-user-plus"></i> Novo Usuário
-      </button>
+   
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <input type="text" id="pesquisaUsuario" class="form-input" placeholder="Pesquisar nome ou CPF..." style="min-width: 280px;">
+        <button class="btn btn-primary" onclick="abrirModalNovo()">
+          <i class="fas fa-user-plus"></i> Novo Usuário
+        </button>
+      </div>
     </div>
 
     <div id="loadingUsuarios" class="loading-spinner hidden">
