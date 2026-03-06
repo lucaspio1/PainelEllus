@@ -4,15 +4,18 @@ document.addEventListener('DOMContentLoaded', () => {
     carregarUsuarios();
 
     // Máscara para CPF no Modal
-    document.getElementById('inputCpf').addEventListener('input', (e) => {
-        let value = e.target.value.replace(/\D/g, '');
-        if (value.length <= 11) {
-            value = value.replace(/(\d{3})(\d)/, '$1.$2');
-            value = value.replace(/(\d{3})(\d)/, '$1.$2');
-            value = value.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
-            e.target.value = value;
-        }
-    });
+    const inputCpf = document.getElementById('inputCpf');
+    if (inputCpf) {
+        inputCpf.addEventListener('input', (e) => {
+            let value = e.target.value.replace(/\D/g, '');
+            if (value.length <= 11) {
+                value = value.replace(/(\d{3})(\d)/, '$1.$2');
+                value = value.replace(/(\d{3})(\d)/, '$1.$2');
+                value = value.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+                e.target.value = value;
+            }
+        });
+    }
 
     // Evento de Pesquisa Dinâmica
     const inputPesquisa = document.getElementById('pesquisaUsuario');
@@ -25,7 +28,7 @@ async function carregarUsuarios() {
     const loading = document.getElementById('loadingUsuarios');
     const tbody = document.getElementById('usuariosBody');
 
-    loading.classList.remove('hidden');
+    if (loading) loading.classList.remove('hidden');
 
     try {
         const res = await fetch('/api/usuarios');
@@ -35,18 +38,19 @@ async function carregarUsuarios() {
             usuariosData = json.data || [];
             renderizarUsuarios();
         } else {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:red;">Erro ao carregar usuários</td></tr>';
+            if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:red;">Erro ao carregar usuários</td></tr>';
         }
     } catch (error) {
         console.error(error);
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:red;">Erro de conexão</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:red;">Erro de conexão</td></tr>';
     } finally {
-        loading.classList.add('hidden');
+        if (loading) loading.classList.add('hidden');
     }
 }
 
 function renderizarUsuarios() {
     const tbody = document.getElementById('usuariosBody');
+    if (!tbody) return;
     
     // Pega o valor digitado no campo de pesquisa
     const inputPesquisa = document.getElementById('pesquisaUsuario');
@@ -74,42 +78,14 @@ function renderizarUsuarios() {
     tbody.innerHTML = '';
     filtrados.forEach(user => {
         const tr = document.createElement('tr');
+        // Usamos replace no JSON.stringify para evitar problemas com aspas simples nos nomes
         tr.innerHTML = `
             <td><strong>${user.nome}</strong></td>
             <td>${formatarCPF(user.cpf)}</td>
             <td><span class="badge-perfil">${user.perfil || 'USER'}</span></td>
-            <td><span class="${user.ativo ? 'badge-ativo' : 'badge-inativo'}">${user.ativo ? 'Ativo' : 'Inativo'}</span></td>
+            <td><span class="${user.ativo !== false ? 'badge-ativo' : 'badge-inativo'}">${user.ativo !== false ? 'Ativo' : 'Inativo'}</span></td>
             <td style="text-align:center">
-                <button class="btn-icon edit" onclick='editarUsuario(${JSON.stringify(user)})' title="Editar">
-                    <i class="fas fa-edit"></i>
-                </button>
-                <button class="btn-icon delete" onclick="excluirUsuario('${user.cpf}')" title="Excluir">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </td>
-        `;
-        tbody.appendChild(tr);
-    });
-}
-
-function renderizarUsuarios() {
-    const tbody = document.getElementById('usuariosBody');
-
-    if (usuariosData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 40px;">Nenhum usuário cadastrado</td></tr>';
-        return;
-    }
-
-    tbody.innerHTML = '';
-    usuariosData.forEach(user => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><strong>${user.nome}</strong></td>
-            <td>${formatarCPF(user.cpf)}</td>
-            <td><span class="badge-perfil">${user.perfil || 'USER'}</span></td>
-            <td><span class="${user.ativo ? 'badge-ativo' : 'badge-inativo'}">${user.ativo ? 'Ativo' : 'Inativo'}</span></td>
-            <td style="text-align:center">
-                <button class="btn-icon edit" onclick='editarUsuario(${JSON.stringify(user)})' title="Editar">
+                <button class="btn-icon edit" onclick='editarUsuario(${JSON.stringify(user).replace(/'/g, "&#39;")})' title="Editar">
                     <i class="fas fa-edit"></i>
                 </button>
                 <button class="btn-icon delete" onclick="excluirUsuario('${user.cpf}')" title="Excluir">
@@ -124,7 +100,10 @@ function renderizarUsuarios() {
 function formatarCPF(cpf) {
     if (!cpf) return '';
     const cleaned = String(cpf).replace(/\D/g, '');
-    return cleaned.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+    if (cleaned.length === 11) {
+        return cleaned.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+    }
+    return cleaned;
 }
 
 function abrirModalNovo() {
