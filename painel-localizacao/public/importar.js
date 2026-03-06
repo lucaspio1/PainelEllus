@@ -333,7 +333,7 @@ async function gerarPDFSelecionados() {
             const groupQRBase64 = await gerarQRCodeBase64(qrStringGroup);
             
             if (groupQRBase64) {
-                doc.addImage(groupQRBase64, 'PNG', centerX - 40, centerY - 40, 70, 80);
+                doc.addImage(groupQRBase64, 'PNG', centerX - 40, centerY - 40, 80, 80);
             } else {
                 // Se retornar nulo mas sem erro
                 doc.setTextColor(255, 0, 0);
