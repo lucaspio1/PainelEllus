@@ -357,10 +357,13 @@ function gerarQRCodeBase64(text) {
     return new Promise((resolve) => {
         try {
             // QRious gera direto em memória, sem precisar de div ou appendChild
-            const qr = new QRious({
+const qr = new QRious({
                 value: text,
                 size: 300,
-                level: 'M' // Mesma correção de erro
+                level: 'M',
+                padding: 25, // <-- MARGEM BRANCA ESSENCIAL PARA O APP LER
+                background: 'white',
+                foreground: 'black'
             });
             // Retorna direto o base64
             resolve(qr.toDataURL());
