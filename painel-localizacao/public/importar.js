@@ -353,23 +353,36 @@ async function gerarPDFSelecionados() {
     toggleLoading(false);
 }
 
-function gerarQRCodeBase64(text) {
-    return new Promise((resolve) => {
+async function gerarQRCodeBase64(text) {
+    return new Promise(async (resolve) => {
         try {
-            // QRious gera direto em memória, sem precisar de div ou appendChild
-const qr = new QRious({
-                value: text,
-                size: 300,
-                level: 'M',
-                padding: 25, // <-- MARGEM BRANCA ESSENCIAL PARA O APP LER
-                background: 'white',
-                foreground: 'black'
-            });
-            // Retorna direto o base64
-            resolve(qr.toDataURL());
+            // 1. Tenta gerar via API Profissional (idêntico ao site externo que você usou)
+            // Isso garante altíssimo contraste, zonas de silêncio perfeitas e suporte a acentuação.
+            const url = `https://quickchart.io/qr?text=${encodeURIComponent(text)}&margin=2&size=400&ecLevel=M`;
+            const response = await fetch(url);
+            const blob = await response.blob();
+            
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+            
         } catch (e) {
-            console.error("Erro QRious:", e);
-            resolve(null);
+            console.error("Erro na API, usando gerador de emergência:", e);
+            // 2. Plano de emergência local: Corrige o bug de acentos do QRious forçando o UTF-8
+            try {
+                const textoCorrigido = unescape(encodeURIComponent(text));
+                const qr = new QRious({
+                    value: textoCorrigido,
+                    size: 400,
+                    level: 'M',
+                    padding: 25,
+                    background: 'white',
+                    foreground: 'black'
+                });
+                resolve(qr.toDataURL());
+            } catch (err) {
+                resolve(null);
+            }
         }
     });
 }
