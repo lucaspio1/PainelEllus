@@ -20,6 +20,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// Define a saudação no cabeçalho com o primeiro nome em maiúsculo
+try {
+    const userData = JSON.parse(localStorage.getItem('painel_user') || '{}');
+    const nomeEl = document.getElementById('nomeOperador');
+    if (nomeEl && userData.nome) {
+        const primeiroNome = userData.nome.split(' ')[0].toUpperCase();
+        nomeEl.innerHTML = `👋 Olá, ${primeiroNome}`;
+    }
+} catch(e) { console.error("Erro ao carregar nome:", e); }
+
 // --- 1. LÓGICA DE IMPORTAÇÃO ---
 
 const fileInput = document.getElementById('fileInput');

@@ -12,19 +12,20 @@
   <div class="app-container">
     
     <!-- Header -->
-    <header class="top-bar">
-      <div class="logo-area" style="cursor: pointer;" onclick="window.location.href='/home'">
-        <i class="fas fa-arrow-left"></i> Voltar
-      </div>
-      
-      <div class="controls-area" style="justify-content: center; flex: 1;">
-        <h2><i class="fas fa-bus"></i> Controle de Embarque</h2>
-      </div>
+<header class="top-bar">
+    <div class="logo-area" style="cursor:pointer; font-size: 1.1rem; color: var(--brand-dark-green);" onclick="window.location.href='/home'">
+      <i class="fas fa-arrow-left"></i> Voltar
+    </div>
+    
+    <div class="controls-area" style="justify-content: center; flex: 1; gap: 15px;">
+      <h2 style="margin: 0; font-size: 1.2rem;"><i class="fas fa-bus"></i> Controle de Embarque</h2>
+      <span id="totalPassageiros" class="badge badge-quarto" style="align-self: center;">0 Alunos</span>
+    </div>
 
-      <div class="operator-area">
-        <span id="totalPassageiros" class="badge badge-quarto">0 Alunos</span>
-      </div>
-    </header>
+    <div class="operator-area">
+      <span id="nomeOperador" class="operator-name">👋 Olá, Usuário</span>
+    </div>
+  </header>
 
     <!-- Filtros -->
     <div class="filters-bar">

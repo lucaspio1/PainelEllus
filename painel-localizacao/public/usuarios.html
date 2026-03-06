@@ -31,13 +31,19 @@
 </head>
 <body>
 
-  <header class="top-bar">
-    <div class="logo-area">
-      <img src="icon.png" alt="Ellus" class="logo-img">
-      <span style="font-weight:bold; margin-left:10px; color:var(--brand-dark-green)">Gerenciar Usuários</span>
+<header class="top-bar">
+    <div class="logo-area" style="cursor:pointer; font-size: 1.1rem; color: var(--brand-dark-green);" onclick="window.location.href='/home'">
+      <i class="fas fa-arrow-left"></i> Voltar
     </div>
-    <div>
-      <a href="/home" class="btn btn-sm btn-outline"><i class="fas fa-home"></i> Voltar</a>
+    
+    <div style="flex: 1; text-align: center;">
+      <span style="font-weight:bold; color:var(--brand-dark-green); font-size: 1.1rem;">
+        <i class="fas fa-user-shield"></i> Gerenciar Usuários
+      </span>
+    </div>
+
+    <div class="operator-area">
+      <span id="nomeOperador" class="operator-name">👋 Olá, Usuário</span>
     </div>
   </header>
 

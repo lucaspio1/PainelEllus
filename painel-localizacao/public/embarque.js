@@ -22,6 +22,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 30000);
 });
 
+// Define a saudação no cabeçalho com o primeiro nome em maiúsculo
+try {
+    const userData = JSON.parse(localStorage.getItem('painel_user') || '{}');
+    const nomeEl = document.getElementById('nomeOperador');
+    if (nomeEl && userData.nome) {
+        const primeiroNome = userData.nome.split(' ')[0].toUpperCase();
+        nomeEl.innerHTML = `👋 Olá, ${primeiroNome}`;
+    }
+} catch(e) { console.error("Erro ao carregar nome:", e); }
+
 function getFormattedDate(date) {
     const d = date.getDate().toString().padStart(2, '0');
     const m = (date.getMonth() + 1).toString().padStart(2, '0');
