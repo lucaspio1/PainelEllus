@@ -187,30 +187,33 @@ app.post('/api/importar', async (req, res) => {
     }
 
     const promessas = alunos.map(async (aluno) => {
-      // Limpa CPF para usar como ID
       const cpfLimpo = String(aluno.cpf_limpo || aluno.cpf).replace(/\D/g, '');
-
       if (!cpfLimpo) return;
 
       const agora = new Date();
 
-      // Salva em 'quartos' (dados de hospedagem)
+      // 🟢 CORREÇÃO: Definir a variável antes de usar nos objetos
+      // Verifica se o campo 'facial' na planilha é true ou o texto "sim"
+      const isFacial = aluno.facial === true || 
+                       (aluno.facial && String(aluno.facial).toLowerCase() === 'sim');
+
+      // Salva em 'quartos'
       const quartoRef = db.collection('quartos').doc(cpfLimpo);
-     const dadosQuarto = {
+      const dadosQuarto = {
         colegio: aluno.colegio || '',
         cpf: cpfLimpo,
         nome_hospede: aluno.nome,
         numero_quarto: aluno.quarto || aluno.numero_quarto || '',
         inicio_viagem: formatarDataCurta(aluno.inicio_viagem),
         fim_viagem: formatarDataCurta(aluno.fim_viagem),
-        facial: isFacial, // 🟢 ADICIONADO: Flag para filtro
+        facial: isFacial, // Agora a variável existe!
         created_at: agora,
         updated_at: agora
       };
 
-      // Salva em 'alunos' (para controle de movimentação)
+      // Salva em 'alunos'
       const alunoRef = db.collection('alunos').doc(cpfLimpo);
-const dadosAluno = {
+      const dadosAluno = {
         colegio: aluno.colegio || '',
         cpf: cpfLimpo,
         nome: aluno.nome,
@@ -218,14 +221,12 @@ const dadosAluno = {
         inicio_viagem: formatarDataCurta(aluno.inicio_viagem),
         fim_viagem: formatarDataCurta(aluno.fim_viagem),
         movimentacao: 'QUARTO',
-        facial: isFacial, // 🟢 ADICIONADO: Flag para filtro
+        facial: isFacial, // Agora a variável existe!
         updated_at: agora
       };
 
-      // Salva em 'embarques' (para controle de embarque/facial)
+      // ... restante do código (dadosEmbarque e set)
       const embarqueRef = db.collection('embarques').doc(cpfLimpo);
-
-      // Limpa espaços extras dos campos críticos para QR Code
       const cleanString = (str) => str ? String(str).trim().replace(/\s+/g, ' ') : '';
 
       const dadosEmbarque = {
@@ -253,8 +254,7 @@ const dadosAluno = {
     });
 
     await Promise.all(promessas);
-
-    res.json({ success: true, message: `${alunos.length} registros salvos nas tabelas 'quartos', 'alunos' e 'embarques'.` });
+    res.json({ success: true, message: `${alunos.length} registros processados.` });
 
   } catch (error) {
     console.error('Erro na importação:', error);
