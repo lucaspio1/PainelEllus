@@ -715,6 +715,11 @@ app.delete('/api/remover-quarto/:cpf', async (req, res) => {
 
 db.collection('alunos').onSnapshot(snapshot => {
   console.log('🔔 Mudança detectada no Firestore! Notificando clientes...');
+  
+  // 🟢 LINHA ESSENCIAL: Limpa o cache para que os painéis 
+  // carreguem a informação nova vinda do App
+  cachePessoas.data = null; 
+
   io.emit('dados_atualizados', { 
     timestamp: new Date().toISOString(),
     tipo: 'alunos'
