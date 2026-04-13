@@ -2,7 +2,7 @@
 
 Sistema robusto de gerenciamento e rastreamento de localização de alunos em tempo real, com interface moderna e intuitiva.
 
-**✅ Suporta 1600+ alunos com paginação inteligente**
+
 
 ## 📦 Tecnologias
 
