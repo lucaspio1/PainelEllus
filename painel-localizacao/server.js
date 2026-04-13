@@ -196,30 +196,29 @@ app.post('/api/importar', async (req, res) => {
 
       // Salva em 'quartos' (dados de hospedagem)
       const quartoRef = db.collection('quartos').doc(cpfLimpo);
-      const dadosQuarto = {
+     const dadosQuarto = {
         colegio: aluno.colegio || '',
         cpf: cpfLimpo,
         nome_hospede: aluno.nome,
         numero_quarto: aluno.quarto || aluno.numero_quarto || '',
         inicio_viagem: formatarDataCurta(aluno.inicio_viagem),
         fim_viagem: formatarDataCurta(aluno.fim_viagem),
+        facial: isFacial, // 🟢 ADICIONADO: Flag para filtro
         created_at: agora,
         updated_at: agora
       };
 
       // Salva em 'alunos' (para controle de movimentação)
       const alunoRef = db.collection('alunos').doc(cpfLimpo);
-      const dadosAluno = {
+const dadosAluno = {
         colegio: aluno.colegio || '',
         cpf: cpfLimpo,
         nome: aluno.nome,
         turma: aluno.turma || '',
-        email: aluno.email || '',
-        telefone: aluno.telefone || '',
         inicio_viagem: formatarDataCurta(aluno.inicio_viagem),
         fim_viagem: formatarDataCurta(aluno.fim_viagem),
-        movimentacao: 'QUARTO', // Status inicial
-        facial_cadastrada: false,
+        movimentacao: 'QUARTO',
+        facial: isFacial, // 🟢 ADICIONADO: Flag para filtro
         updated_at: agora
       };
 
@@ -399,9 +398,9 @@ app.get('/api/pessoas', async (req, res) => {
 
     console.log('🔥 Buscando /api/pessoas no Firestore...');
     // 2. Busca no banco de dados apenas se o cache expirou
-    const [quartosSnapshot, alunosSnapshot] = await Promise.all([
-      db.collection('quartos').get(),
-      db.collection('alunos').get()
+   const [quartosSnapshot, alunosSnapshot] = await Promise.all([
+      db.collection('quartos').where('facial', '==', true).get(), // 🟢 FILTRADO
+      db.collection('alunos').where('facial', '==', true).get()    // 🟢 FILTRADO
     ]);
 
     const movimentacoesPorCpf = new Map();
@@ -446,9 +445,9 @@ app.get('/api/pessoas', async (req, res) => {
 app.get('/api/quartos', async (req, res) => {
     try {
       // Busca dados das duas coleções em paralelo
-      const [quartosSnapshot, alunosSnapshot] = await Promise.all([
-        db.collection('quartos').get(),
-        db.collection('alunos').get()
+     const [quartosSnapshot, alunosSnapshot] = await Promise.all([
+        db.collection('quartos').where('facial', '==', true).get(), // 🟢 FILTRADO
+        db.collection('alunos').where('facial', '==', true).get()    // 🟢 FILTRADO
       ]);
 
       // Cria mapa de movimentações por CPF
