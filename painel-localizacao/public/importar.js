@@ -110,7 +110,12 @@ function renderizarTabelaPreview() {
             <td>${aluno.cpf}</td>
             <td>${aluno.turma}</td>
             <td style="text-align:center;">
-                <button class="btn-delete" onclick="removerLinha(${index})"><i class="fas fa-trash-alt"></i></button>
+                <button class="btn-edit" onclick="abrirModalEdicao(${index})" title="Editar">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn-delete" onclick="removerLinha(${index})" title="Excluir">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
             </td>
         `;
         tbody.appendChild(tr);
@@ -123,6 +128,49 @@ function removerLinha(index) {
     renderizarTabelaPreview();
 }
 
+// --- LÓGICA DE EDIÇÃO NO PREVIEW ---
+
+function abrirModalEdicao(index) {
+    const aluno = alunosParaImportar[index];
+    
+    // Preenche os campos do modal com os dados atuais
+    document.getElementById('editIndex').value = index;
+    document.getElementById('editNome').value = aluno.nome || '';
+    document.getElementById('editCpf').value = aluno.cpf || '';
+    document.getElementById('editTurma').value = aluno.turma || '';
+
+    // Mostra o modal
+    const modal = document.getElementById('modalEditarAluno');
+    if (modal) modal.style.display = 'flex';
+}
+
+function fecharModalEdicao() {
+    const modal = document.getElementById('modalEditarAluno');
+    if (modal) modal.style.display = 'none';
+}
+
+function salvarEdicaoAluno(event) {
+    event.preventDefault(); // Evita o recarregamento da página
+
+    const index = document.getElementById('editIndex').value;
+    const novoNome = document.getElementById('editNome').value.trim();
+    const novoCpf = document.getElementById('editCpf').value.trim();
+    const novaTurma = document.getElementById('editTurma').value.trim();
+    
+    // Limpa o CPF para manter o padrão de dados do sistema
+    const cpfLimpo = String(novoCpf).replace(/\D/g, '');
+
+    // Atualiza o objeto no array original
+    alunosParaImportar[index].nome = novoNome;
+    alunosParaImportar[index].cpf = novoCpf;
+    alunosParaImportar[index].cpf_limpo = cpfLimpo;
+    alunosParaImportar[index].turma = novaTurma;
+
+    // Fecha o modal e recria a tabela para exibir as mudanças
+    fecharModalEdicao();
+    renderizarTabelaPreview();
+}
+
 async function enviarDados() {
     if (alunosParaImportar.length === 0) return alert('A lista está vazia.');
 
@@ -131,7 +179,9 @@ async function enviarDados() {
         colegio: document.getElementById('inputColegio').value.trim(),
         onibus: document.getElementById('inputOnibus').value.trim(),
         inicio: document.getElementById('inputInicio').value,
-        fim: document.getElementById('inputFim').value
+        fim: document.getElementById('inputFim').value,
+        // CAPTURA O STATUS DO BOTÃO FACIAL (true ou false)
+        facial: document.getElementById('checkFacial').checked
     };
 
     // Validação rigorosa dos campos obrigatórios
@@ -158,7 +208,9 @@ async function enviarDados() {
         colegio: inputs.colegio,
         onibus: inputs.onibus,
         inicio_viagem: inputs.inicio,
-        fim_viagem: inputs.fim
+        fim_viagem: inputs.fim,
+        // ADICIONA A FLAG FACIAL EM CADA REGISTRO DE ALUNO NO BANCO
+        facial: inputs.facial
     }));
 
     try {
@@ -176,8 +228,11 @@ async function enviarDados() {
         } else {
             alert('Erro: ' + data.message);
         }
-    } catch (e) { alert('Erro de conexão'); }
-    finally { toggleLoading(false); }
+    } catch (e) { 
+        alert('Erro de conexão'); 
+    } finally { 
+        toggleLoading(false); 
+    }
 }
 
 function limparImportacao() {

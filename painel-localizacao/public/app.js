@@ -117,7 +117,22 @@ async function init() {
   });
 
   await carregarDados();
-  autoRefreshInterval = setInterval(() => carregarDados(true), 30000);
+  const socket = io();
+
+  socket.on('connect', () => {
+    console.log('✅ Conectado ao Servidor de Mensageria');
+    mostrarToast('Conectado em tempo real', 'info');
+  });
+
+  socket.on('dados_atualizados', (data) => {
+    console.log('🔄 Recebido aviso de atualização:', data);
+    // Atualiza o painel silenciosamente sem travar a tela
+    carregarDados(true); 
+  });
+
+  socket.on('disconnect', () => {
+    console.warn('⚠️ Desconectado do servidor de mensagens');
+  });
 }
 
 function limparCPF(cpf) {

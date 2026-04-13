@@ -7,15 +7,53 @@
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   
-  <!-- LIBRARIAS NECESSÁRIAS -->
-  <!-- 1. Ler Excel -->
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
-  <!-- 2. Gerar PDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <!-- 3. Gerar QR Code -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
 
   <style>
+    /* ================= ESTILOS DO MODAL DE EDIÇÃO ================= */
+    .form-modal { 
+        background: white; 
+        border-radius: 12px; 
+        padding: 30px; 
+        max-width: 500px; 
+        width: 90%; 
+        box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    }
+    .form-modal h3 { 
+        margin-bottom: 20px; 
+        color: var(--brand-dark-green); 
+    }
+    .form-row { 
+        margin-bottom: 15px; 
+        text-align: left; 
+    }
+    .form-row label { 
+        display: block; 
+        font-weight: 600; 
+        margin-bottom: 5px; 
+        color: #555; 
+        font-size: 0.9rem; 
+    }
+    .form-row input { 
+        width: 100%; 
+        padding: 10px; 
+        border: 1px solid #ddd; 
+        border-radius: 6px; 
+        font-size: 0.95rem; 
+    }
+    .form-actions { 
+        display: flex; 
+        gap: 10px; 
+        justify-content: flex-end; 
+        margin-top: 25px; 
+    }
+
+    /* Botão de Edição na Tabela */
+    .btn-edit { color: #3498db; cursor: pointer; border: none; background: none; font-size: 1.1rem; margin-right: 15px; transition: opacity 0.2s; }
+    .btn-edit:hover { opacity: 0.7; }
+    
     .import-container { max-width: 1000px; margin: 30px auto; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
     
     /* Upload e Forms */
@@ -71,7 +109,6 @@
   </header>
 
   <div class="import-container">
-    <!-- ================= IMPORTAÇÃO ================= -->
     <h2>📂 1. Importar Excel</h2>
     
     <input type="file" id="fileInput" accept=".xlsx, .xls" style="display: none;">
@@ -80,33 +117,41 @@
       <p style="margin-top:10px">Clique para selecionar o arquivo <strong>.XLSX</strong></p>
     </div>
 
-    <!-- Campos Globais e Preview -->
     <div id="globalFields" class="hidden">
         <h3>📝 Dados da Importação</h3>
         <div class="form-grid">
-            <div class="form-group full-width">
-                <label>Nome do Passeio (ID Passeio)</label>
-                <input type="text" id="inputPasseio" class="form-control" placeholder="Ex: PRAIA_2025_12_01">
-            </div>
-            <div class="form-group">
-                <label>Colégio</label>
-                <input type="text" id="inputColegio" class="form-control">
-            </div>
-            <div class="form-group">
-                <label>Ônibus</label>
-                <input type="text" id="inputOnibus" class="form-control">
-            </div>
-            <div class="form-group">
-                <label>Início Viagem</label>
-                <input type="date" id="inputInicio" class="form-control">
-            </div>
-            <div class="form-group">
-                <label>Fim Viagem</label>
-                <input type="date" id="inputFim" class="form-control">
-            </div>
+    <div class="form-group full-width">
+        <label>Nome do Passeio (ID Passeio)</label>
+        <input type="text" id="inputPasseio" class="form-control" placeholder="Ex: PRAIA_2025_12_01">
+    </div>
+    <div class="form-group">
+        <label>Colégio</label>
+        <input type="text" id="inputColegio" class="form-control">
+    </div>
+    <div class="form-group">
+        <label>Ônibus</label>
+        <input type="text" id="inputOnibus" class="form-control">
+    </div>
+    <div class="form-group">
+        <label>Início Viagem</label>
+        <input type="date" id="inputInicio" class="form-control">
+    </div>
+    <div class="form-group">
+        <label>Fim Viagem</label>
+        <input type="date" id="inputFim" class="form-control">
+    </div>
+    <div class="form-group" style="justify-content: center; align-items: center; background: #fff; border-radius: 6px; border: 1px solid #ddd; padding: 5px;">
+        <div class="toggle-label">
+            <span>Usar Reconhecimento Facial?</span>
+            <label class="toggle-switch">
+                <input type="checkbox" id="checkFacial">
+                <span class="slider"></span>
+            </label>
+            <span id="labelFacial" style="color: var(--brand-dark-green); font-weight: bold;">NÃO</span>
         </div>
+    </div>
+</div>
         
-        <!-- ÁREA DE PREVIEW (TABELA COMPLETA COM EXCLUSÃO) -->
         <div id="previewArea" style="margin-top:20px; margin-bottom: 20px;">
              <h3>Pré-visualização (<span id="totalLinhas">0</span> alunos)</h3>
              <p style="font-size:0.8rem; color:#666;">Verifique a lista abaixo e exclua linhas indesejadas antes de confirmar.</p>
@@ -133,7 +178,6 @@
         </div>
     </div>
 
-    <!-- ================= GERADOR DE QR CODE ================= -->
     <div class="print-section">
         <h2>🖨️ 2. Gerar QR Codes (PDF)</h2>
         <p style="color:#666; margin-bottom:15px">Selecione os colégios importados para gerar os crachás.</p>
@@ -150,7 +194,6 @@
             </div>
             
             <div class="print-controls">
-                <!-- BOTÃO ANIMADO FACIAL -->
                 <div class="toggle-label">
                     <span>Facial?</span>
                     <label class="toggle-switch">
@@ -190,6 +233,39 @@
   </div>
   
   <div id="qr-code-generator" style="display:none;"></div>
+
+  <div id="modalEditarAluno" class="modal-overlay" style="display: none;">
+    <div class="form-modal">
+      <h3 style="margin-bottom: 20px; color: var(--brand-dark-green);">
+        <i class="fas fa-user-edit"></i> Editar Aluno
+      </h3>
+      <form id="formEditarAluno" onsubmit="salvarEdicaoAluno(event)">
+        <input type="hidden" id="editIndex">
+
+        <div class="form-row">
+          <label>Nome Completo *</label>
+          <input type="text" id="editNome" required>
+        </div>
+
+        <div class="form-row">
+          <label>CPF</label>
+          <input type="text" id="editCpf">
+        </div>
+
+        <div class="form-row">
+          <label>Turma</label>
+          <input type="text" id="editTurma">
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-outline" onclick="fecharModalEdicao()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save"></i> Salvar
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <script src="importar.js"></script>
 </body>

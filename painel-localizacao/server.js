@@ -1,5 +1,7 @@
 require('dotenv').config();
 
+const http = require('http');
+const { Server } = require("socket.io");
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -66,6 +68,10 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const app = express();
 const PORT = process.env.PORT || 3000;
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*" }
+});
 
 // Log de diagnóstico para debug
 console.log('🔍 Diagnóstico de Ambiente:');
@@ -322,6 +328,15 @@ app.get('/api/embarque-lista', async (req, res) => {
 });
 
 // ✅ MOVIMENTAR (Mantém logs e atualiza status)
+// --- SISTEMA DE CACHE EM MEMÓRIA ---
+// DECLARE AQUI EM CIMA PARA TODAS AS ROTAS ENXERGAREM
+let cachePessoas = {
+  data: null,
+  lastFetch: 0
+};
+const CACHE_TTL = 10000; // Cache dura 10 segundos
+
+
 app.post('/api/movimentar', async (req, res) => {
   try {
     const { cpf, novaLocalizacao, nome, nome_hospede, colegio, turma, quarto, numero_quarto, operador } = req.body;
@@ -359,6 +374,10 @@ app.post('/api/movimentar', async (req, res) => {
       numero_quarto: numeroQuarto
     });
 
+    // 👇 AQUI ESTÁ A MÁGICA PARA O TEMPO REAL FUNCIONAR
+    // Limpamos o cache imediatamente após salvar no banco
+    cachePessoas.data = null;
+
     res.json({ success: true });
   } catch (e) {
     console.error(e);
@@ -366,23 +385,31 @@ app.post('/api/movimentar', async (req, res) => {
   }
 });
 
+
 // ✅ OUTRAS ROTAS (Quartos, Viagens, Logs, Pessoas) MANTIDAS
 app.get('/api/pessoas', async (req, res) => {
   try {
-    // Busca dados das duas coleções em paralelo (otimizado)
+    const now = Date.now();
+
+    // 1. BLINDAGEM: Se vários computadores pedirem ao mesmo tempo, retorna da memória!
+    if (cachePessoas.data && (now - cachePessoas.lastFetch < CACHE_TTL)) {
+      console.log('⚡ Retornando /api/pessoas do CACHE em memória');
+      return res.json({ success: true, data: cachePessoas.data, fromCache: true });
+    }
+
+    console.log('🔥 Buscando /api/pessoas no Firestore...');
+    // 2. Busca no banco de dados apenas se o cache expirou
     const [quartosSnapshot, alunosSnapshot] = await Promise.all([
       db.collection('quartos').get(),
       db.collection('alunos').get()
     ]);
 
-    // Cria um mapa de movimentações por CPF para lookup rápido
     const movimentacoesPorCpf = new Map();
     alunosSnapshot.forEach(doc => {
       const data = doc.data();
       movimentacoesPorCpf.set(data.cpf, data.movimentacao || 'QUARTO');
     });
 
-    // Combina dados de quartos com movimentação
     const pessoas = [];
     quartosSnapshot.forEach(doc => {
       const quarto = doc.data();
@@ -404,6 +431,10 @@ app.get('/api/pessoas', async (req, res) => {
         updated_at: quarto.updated_at
       });
     });
+
+    // 3. Salva os dados processados na memória
+    cachePessoas.data = pessoas;
+    cachePessoas.lastFetch = now;
 
     res.json({ success: true, data: pessoas });
   } catch (e) {
@@ -682,6 +713,16 @@ app.delete('/api/remover-quarto/:cpf', async (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🚀 Servidor (Firebase) rodando em http://localhost:${PORT}`);
+db.collection('alunos').onSnapshot(snapshot => {
+  console.log('🔔 Mudança detectada no Firestore! Notificando clientes...');
+  io.emit('dados_atualizados', { 
+    timestamp: new Date().toISOString(),
+    tipo: 'alunos'
+  });
+}, error => {
+  console.error('❌ Erro no listener do Firestore:', error);
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🚀 Servidor com WebSockets rodando em http://localhost:${PORT}`);
 });
