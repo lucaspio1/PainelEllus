@@ -713,6 +713,107 @@ app.delete('/api/remover-quarto/:cpf', async (req, res) => {
   }
 });
 
+// ==========================================================
+// ✅ ROTAS DE GERENCIAMENTO DE VIAGENS
+// ==========================================================
+
+app.get('/api/viagens-unicas', async (req, res) => {
+  try {
+    const snapshot = await db.collection('alunos').get();
+    const viagensMap = new Map();
+
+    snapshot.forEach(doc => {
+      const d = doc.data();
+      const colegio = d.colegio || 'Sem Colégio';
+      const inicio = d.inicio_viagem || '0000-00-00';
+      const fim = d.fim_viagem || '0000-00-00';
+      const chave = `${colegio}_${inicio}`;
+
+      if (viagensMap.has(chave)) {
+        viagensMap.get(chave).qtd_alunos += 1;
+      } else {
+        viagensMap.set(chave, {
+          colegio: colegio,
+          inicio: inicio,
+          fim: fim,
+          qtd_alunos: 1
+        });
+      }
+    });
+
+    const viagensArray = Array.from(viagensMap.values());
+    res.json({ success: true, data: viagensArray });
+  } catch (e) {
+    console.error('Erro ao listar viagens únicas:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.delete('/api/viagens/excluir', async (req, res) => {
+  try {
+    const { colegio, inicio_viagem, operador } = req.body;
+    
+    // Busca alunos dessa viagem
+    const alunosSnapshot = await db.collection('alunos')
+      .where('colegio', '==', colegio)
+      .where('inicio_viagem', '==', inicio_viagem)
+      .get();
+      
+    // Busca quartos dessa viagem
+    const quartosSnapshot = await db.collection('quartos')
+      .where('colegio', '==', colegio)
+      .where('inicio_viagem', '==', inicio_viagem)
+      .get();
+
+    const batch = db.batch();
+    let deletados = 0;
+
+    alunosSnapshot.forEach(doc => {
+      batch.delete(doc.ref);
+      deletados++;
+    });
+
+    quartosSnapshot.forEach(doc => {
+      batch.delete(doc.ref);
+      deletados++;
+    });
+
+    // Registra Log de Auditoria
+    const timestamp = new Date().toISOString();
+    const logRef = db.collection('logs').doc();
+    batch.set(logRef, {
+      tipo: 'EXCLUSAO_VIAGEM',
+      colegio: colegio,
+      inicio_viagem: inicio_viagem,
+      documentos_removidos: deletados,
+      operador: operador || 'Sistema',
+      timestamp: timestamp
+    });
+
+    // Executa tudo de uma vez
+    if (deletados > 0) {
+      await batch.commit();
+    }
+
+    console.log(`🗑️ Viagem excluída: ${colegio} (${deletados} docs) por ${operador}`);
+
+    // Limpa o cache para que os painéis web não mostrem mais esses alunos
+    if (typeof cachePessoas !== 'undefined') {
+      cachePessoas.data = null;
+    }
+
+    // Avisa os painéis via Socket para atualizarem a tela e removerem os alunos
+    if (typeof io !== 'undefined') {
+      io.emit('dados_atualizados', { tipo: 'exclusao_lote' });
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Erro ao excluir viagem:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 db.collection('alunos').onSnapshot(snapshot => {
   console.log('🔔 Mudança detectada no Firestore! Notificando clientes...');
   

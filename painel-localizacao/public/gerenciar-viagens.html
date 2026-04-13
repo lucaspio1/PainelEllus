@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gerenciar Viagens - Painel Ellus</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    /* Estilos específicos para esta tela, mantendo a harmonia visual */
+    .table-container {
+      background: var(--bg-card);
+      border-radius: var(--border-radius);
+      padding: 1.5rem;
+      margin-top: 1.5rem;
+      box-shadow: var(--shadow);
+      overflow-x: auto;
+    }
+    .viagens-table {
+      width: 100%;
+      border-collapse: collapse;
+      color: var(--text-color);
+    }
+    .viagens-table th, .viagens-table td {
+      padding: 1rem;
+      text-align: left;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .viagens-table th {
+      color: var(--primary-color);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.85rem;
+      letter-spacing: 0.5px;
+    }
+    .viagens-table tr:hover {
+      background-color: rgba(255,255,255,0.02);
+    }
+    .controls-gerenciar {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .btn-excluir {
+      background-color: var(--danger-color);
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn-excluir:hover {
+      opacity: 0.8;
+    }
+    .info-total {
+      color: var(--text-color);
+      opacity: 0.7;
+      font-size: 0.9rem;
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <header class="top-bar">
+      <div class="logo-area" style="cursor:pointer" onclick="window.location.href='/home'">
+        <i class="fas fa-arrow-left"></i> Voltar ao Menu
+      </div>
+      
+      <div class="operator-area">
+        <span class="operator-name">Gerenciamento de Viagens</span>
+      </div>
+
+      <div class="controls-area">
+        </div>
+    </header>
+
+    <main class="main-content" style="padding: 2rem;">
+      <div class="header-section" style="margin-bottom: 1rem;">
+        <h2><i class="fas fa-route" style="color: var(--primary-color);"></i> Viagens Cadastradas</h2>
+        <p style="color: var(--text-color); opacity: 0.8;">Gerencie e exclua os dados importados das viagens concluídas.</p>
+      </div>
+
+      <div class="controls-gerenciar">
+        <div class="control-item" style="flex: 1; min-width: 250px;">
+          <input type="text" id="pesquisaViagem" class="form-input" placeholder="🔍 Buscar por colégio ou passeio..." onkeyup="filtrarViagens()">
+        </div>
+        <div class="control-item">
+          <input type="month" id="filtroData" class="form-input" onchange="filtrarViagens()">
+        </div>
+        <div class="info-total" id="totalViagensTexto">
+          Carregando...
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table class="viagens-table">
+          <thead>
+            <tr>
+              <th>Colégio</th>
+              <th>Data Início</th>
+              <th>Data Fim</th>
+              <th>Qtd. Alunos</th>
+              <th style="text-align: right;">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tabelaViagensBody">
+            </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="gerenciar.js"></script>
+</body>
+</html>
