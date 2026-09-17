@@ -1,3 +1,20 @@
+function getAuthHeaders() {
+  const token = localStorage.getItem('painel_token');
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+}
+
+async function authFetch(url, options = {}) {
+  options.headers = { ...getAuthHeaders(), ...(options.headers || {}) };
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    localStorage.removeItem('painel_token');
+    localStorage.removeItem('painel_user');
+    window.location.href = '/login';
+    throw new Error('Sessão expirada');
+  }
+  return response;
+}
+
 // ============================================================================
 // PAINEL DE LOCALIZAÇÃO - ELLUS
 // ============================================================================
@@ -86,6 +103,7 @@ async function init() {
       if(confirm('Deseja realmente sair do sistema?')) {
         localStorage.removeItem('painel_user');
         localStorage.removeItem('operadorEllus');
+        localStorage.removeItem('painel_token');
         window.location.href = '/login';
       }
     };
@@ -181,20 +199,20 @@ async function carregarDados(silent = false) {
   try {
     if (!silent) mostrarLoading();
     
-    const resPessoas = await fetch('/api/pessoas');
+    const resPessoas = await authFetch('/api/pessoas');
     const dataPessoas = await resPessoas.json();
     if (dataPessoas.success) todasPessoas = dataPessoas.data || [];
 
     if (!silent || listaQuartosFixa.length === 0) {
       try {
-        const resQuartos = await fetch('/api/quartos');
+        const resQuartos = await authFetch('/api/quartos');
         const dataQuartos = await resQuartos.json();
         if (dataQuartos.success) {
             listaQuartosFixa = dataQuartos.data || [];
         }
       } catch (e) { console.warn('Erro ao buscar quartos:', e); }
 
-      const resViagens = await fetch('/api/viagens');
+      const resViagens = await authFetch('/api/viagens');
       const dataViagens = await resViagens.json();
       if (dataViagens.success) atualizarFiltroViagens(dataViagens.data);
     }
@@ -466,7 +484,7 @@ async function moverAluno(cpf, nome, novoStatus) {
       fimViagem: pessoa?.fim_viagem || ''
     };
 
-    const res = await fetch('/api/movimentar', {
+    const res = await authFetch('/api/movimentar', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
@@ -589,7 +607,7 @@ async function abrirModalDetalhes(p) {
   listaHist.innerHTML = '<p class="text-center">⏳ Carregando histórico...</p>';
   
   try {
-    const res = await fetch(`/api/logs?cpf=${limparCPF(p.cpf)}`);
+    const res = await authFetch(`/api/logs?cpf=${limparCPF(p.cpf)}`);
     const json = await res.json();
     if (json.success) {
       const logs = json.data || [];

@@ -1,3 +1,20 @@
+function getAuthHeaders() {
+  const token = localStorage.getItem('painel_token');
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+}
+
+async function authFetch(url, options = {}) {
+  options.headers = { ...getAuthHeaders(), ...(options.headers || {}) };
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    localStorage.removeItem('painel_token');
+    localStorage.removeItem('painel_user');
+    window.location.href = '/login';
+    throw new Error('Sessão expirada');
+  }
+  return response;
+}
+
 let alunosData = [];
 let colegios = new Set();
 let alunosSelecionados = [];
@@ -41,8 +58,8 @@ async function buscarAlunos() {
         if (fim) url += `&fim=${fim}`;
 
         const [resEmbarques, resQuartos] = await Promise.all([
-            fetch(url),
-            fetch('/api/quartos')
+            authFetch(url),
+            authFetch('/api/quartos')
         ]);
 
         const jsonEmbarques = await resEmbarques.json();
@@ -327,43 +344,43 @@ async function salvarQuartos() {
     toggleLoading(true, `Salvando quarto${qtd > 1 ? 's' : ''}...`);
 
     try {
+        const payloadAlunos = alunosSelecionados.map(aluno => ({
+            cpf: aluno.cpf,
+            numero_quarto: numeroQuarto,
+            nome_hospede: aluno.nome,
+            colegio: aluno.colegio,
+            inicio_viagem: aluno.inicio_viagem,
+            fim_viagem: aluno.fim_viagem
+        }));
+
         let sucessos = 0;
         let erros = 0;
 
-        for (const aluno of alunosSelecionados) {
-            try {
-                const res = await fetch('/api/atribuir-quarto', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        cpf: aluno.cpf,
-                        numero_quarto: numeroQuarto,
-                        nome_hospede: aluno.nome,
-                        colegio: aluno.colegio,
-                        inicio_viagem: aluno.inicio_viagem,
-                        fim_viagem: aluno.fim_viagem
-                    })
-                });
+        try {
+            const res = await authFetch('/api/atribuir-quartos-batch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ alunos: payloadAlunos })
+            });
 
-                const json = await res.json();
+            const json = await res.json();
 
-                if (json.success) {
-                    sucessos++;
-                    // Atualiza localmente
+            if (json.success) {
+                sucessos = alunosSelecionados.length;
+                alunosSelecionados.forEach(aluno => {
                     aluno.numero_quarto = numeroQuarto;
-                    // Atualiza no array
                     const cpfNormalizado = String(aluno.cpf).replace(/\D/g, '');
                     const index = alunosData.findIndex(a => String(a.cpf).replace(/\D/g, '') === cpfNormalizado);
                     if (index !== -1) {
                         alunosData[index].numero_quarto = numeroQuarto;
                     }
-                } else {
-                    erros++;
-                }
-            } catch (err) {
-                console.error(err);
-                erros++;
+                });
+            } else {
+                erros = alunosSelecionados.length;
             }
+        } catch (err) {
+            console.error(err);
+            erros = alunosSelecionados.length;
         }
 
         if (sucessos > 0) {
@@ -394,34 +411,35 @@ async function removerQuartos() {
     toggleLoading(true, `Removendo quarto${qtd > 1 ? 's' : ''}...`);
 
     try {
+        const cpfs = alunosSelecionados.map(aluno => String(aluno.cpf).replace(/\D/g, ''));
         let sucessos = 0;
         let erros = 0;
 
-        for (const aluno of alunosSelecionados) {
-            try {
-                const cpfNormalizado = String(aluno.cpf).replace(/\D/g, '');
-                const res = await fetch(`/api/remover-quarto/${cpfNormalizado}`, {
-                    method: 'DELETE'
-                });
+        try {
+            const res = await authFetch('/api/remover-quartos-batch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cpfs: cpfs })
+            });
 
-                const json = await res.json();
+            const json = await res.json();
 
-                if (json.success) {
-                    sucessos++;
-                    // Atualiza localmente
+            if (json.success) {
+                sucessos = alunosSelecionados.length;
+                alunosSelecionados.forEach(aluno => {
                     aluno.numero_quarto = '';
-                    // Atualiza no array
+                    const cpfNormalizado = String(aluno.cpf).replace(/\D/g, '');
                     const index = alunosData.findIndex(a => String(a.cpf).replace(/\D/g, '') === cpfNormalizado);
                     if (index !== -1) {
                         alunosData[index].numero_quarto = '';
                     }
-                } else {
-                    erros++;
-                }
-            } catch (err) {
-                console.error(err);
-                erros++;
+                });
+            } else {
+                erros = alunosSelecionados.length;
             }
+        } catch (err) {
+            console.error(err);
+            erros = alunosSelecionados.length;
         }
 
         if (sucessos > 0) {

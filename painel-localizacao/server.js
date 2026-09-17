@@ -8,6 +8,12 @@ const path = require('path');
 const os = require('os');
 const admin = require('firebase-admin');
 const fs = require('fs');
+const bcrypt = require('bcryptjs');
+
+// Módulos internos (novos)
+const { dataStore, getAll, getById, getByFilter, getChangedSince, stats, addLog, clearCollection } = require('./store/dataStore');
+const { authMiddleware, requireAdmin, generateToken } = require('./middleware/auth');
+const { setupFirestoreListeners } = require('./store/firestoreListeners');
 
 // [FIREBASE] Inicialização com suporte a múltiplos ambientes
 if (!admin.apps.length) {
@@ -81,19 +87,27 @@ console.log('- K_SERVICE:', process.env.K_SERVICE || 'não definido (não está 
 console.log('- GCP_PROJECT:', process.env.GCP_PROJECT || 'não definido');
 console.log('- FIREBASE_PROJECT_ID:', process.env.FIREBASE_PROJECT_ID || 'não definido');
 console.log('- Firebase App inicializado:', admin.apps.length > 0 ? 'SIM' : 'NÃO');
+console.log('- JWT_SECRET:', process.env.JWT_SECRET ? 'CONFIGURADO ✓' : '⚠️ NÃO DEFINIDO');
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Aumento do limite para batch uploads
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- HEALTH CHECK E DIAGNÓSTICO ---
+// ==========================================================
+// INICIALIZAR CACHE — Listeners do Firestore → RAM
+// ==========================================================
+setupFirestoreListeners(db, io);
+
+// ==========================================================
+// HEALTH CHECK (sem autenticação)
+// ==========================================================
 app.get('/health', async (req, res) => {
   try {
-    // Testa conexão com Firestore
-    await db.collection('_healthcheck').limit(1).get();
+    const storeStats = stats();
     res.json({
       status: 'healthy',
       firebase: 'connected',
+      cache: storeStats,
       timestamp: new Date().toISOString(),
       environment: {
         port: PORT,
@@ -113,7 +127,9 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// --- ROTAS DE NAVEGAÇÃO ---
+// ==========================================================
+// ROTAS DE NAVEGAÇÃO (sem autenticação — servem HTML)
+// ==========================================================
 app.get('/', (req, res) => res.redirect('/login'));
 app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 app.get('/home', (req, res) => res.sendFile(path.join(__dirname, 'public', 'home.html')));
@@ -123,7 +139,9 @@ app.get('/importar', (req, res) => res.sendFile(path.join(__dirname, 'public', '
 app.get('/usuarios', (req, res) => res.sendFile(path.join(__dirname, 'public', 'usuarios.html')));
 app.get('/homelist', (req, res) => res.sendFile(path.join(__dirname, 'public', 'homelist.html')));
 
-// --- UTILITÁRIOS ---
+// ==========================================================
+// UTILITÁRIOS
+// ==========================================================
 function formatarDataPTBR(dataISO) {
   if (!dataISO) return '';
   try {
@@ -136,7 +154,6 @@ function formatarDataPTBR(dataISO) {
   } catch (e) { return dataISO; }
 }
 
-// Helper para converter "2025-12-01" em "01/12" (Conforme exemplo)
 function formatarDataCurta(dataISO) {
     if (!dataISO) return '';
     try {
@@ -154,31 +171,395 @@ function formatarCPF(v) {
   return v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
 }
 
-// --- API ---
+/**
+ * Migração gradual de senha texto puro → bcrypt.
+ * Se a senha armazenada não começa com '$2a$' ou '$2b$', é texto puro.
+ */
+async function verificarSenha(senhaDigitada, senhaArmazenada) {
+  // Se já é hash bcrypt
+  if (senhaArmazenada && (senhaArmazenada.startsWith('$2a$') || senhaArmazenada.startsWith('$2b$'))) {
+    return bcrypt.compare(senhaDigitada, senhaArmazenada);
+  }
+  // Texto puro — comparação direta
+  return String(senhaDigitada) === String(senhaArmazenada);
+}
 
-// ✅ LOGIN
+/**
+ * Migra senha de texto puro para bcrypt no Firestore (chamado após login bem-sucedido).
+ */
+async function migrarSenhaParaBcrypt(cpf, senhaTextoPlano) {
+  try {
+    const hash = await bcrypt.hash(senhaTextoPlano, 10);
+    await db.collection('usuarios').doc(cpf).update({ senha: hash });
+    // Atualiza o cache em memória também
+    const usuario = dataStore.usuarios.get(cpf);
+    if (usuario) {
+      usuario.senha = hash;
+      usuario.updated_at = new Date().toISOString();
+      dataStore.usuarios.set(cpf, usuario);
+    }
+    console.log(`🔒 Senha migrada para bcrypt: ${cpf}`);
+  } catch (error) {
+    console.error(`⚠️ Erro ao migrar senha para bcrypt (${cpf}):`, error.message);
+  }
+}
+
+// ==========================================================
+// API — LOGIN (sem authMiddleware — é o ponto de entrada)
+// ==========================================================
+
+// ✅ LOGIN do Painel Web
 app.post('/api/login', async (req, res) => {
   try {
     const { cpf, senha } = req.body;
-    const snapshot = await db.collection('usuarios')
-      .where('cpf', '==', cpf).limit(1).get();
-
-    if (snapshot.empty) return res.status(401).json({ success: false, message: 'Usuário não encontrado.' });
-
-    const userData = snapshot.docs[0].data();
-    if (String(userData.senha) === String(senha)) {
-      res.json({ success: true, user: { nome: userData.nome, perfil: userData.perfil || 'ADMIN', cpf: userData.cpf } });
-    } else {
-      res.status(401).json({ success: false, message: 'Senha incorreta.' });
+    
+    // Busca primeiro no cache RAM
+    let userData = null;
+    let cpfLimpo = String(cpf).replace(/\D/g, '');
+    
+    // Tentar buscar direto pelo CPF como ID
+    userData = dataStore.usuarios.get(cpfLimpo);
+    
+    // Se não encontrou, buscar pelo campo cpf
+    if (!userData) {
+      const found = getByFilter('usuarios', u => u.cpf === cpfLimpo || u.cpf === cpf);
+      if (found.length > 0) userData = found[0];
     }
+
+    // Se cache está vazio (servidor acabou de iniciar), buscar no Firestore
+    if (!userData) {
+      const snapshot = await db.collection('usuarios')
+        .where('cpf', '==', cpfLimpo).limit(1).get();
+      if (!snapshot.empty) {
+        userData = snapshot.docs[0].data();
+        cpfLimpo = snapshot.docs[0].id;
+      }
+    }
+
+    if (!userData) {
+      return res.status(401).json({ success: false, message: 'Usuário não encontrado.' });
+    }
+
+    const senhaCorreta = await verificarSenha(senha, userData.senha);
+    if (!senhaCorreta) {
+      return res.status(401).json({ success: false, message: 'Senha incorreta.' });
+    }
+
+    // Migrar senha para bcrypt se ainda estiver em texto puro
+    if (userData.senha && !userData.senha.startsWith('$2a$') && !userData.senha.startsWith('$2b$')) {
+      migrarSenhaParaBcrypt(cpfLimpo, senha); // fire-and-forget
+    }
+
+    // Gerar JWT
+    const token = generateToken({ 
+      cpf: userData.cpf || cpfLimpo, 
+      perfil: userData.perfil || 'ADMIN', 
+      nome: userData.nome 
+    });
+
+    res.json({ 
+      success: true, 
+      token,
+      user: { 
+        nome: userData.nome, 
+        perfil: userData.perfil || 'ADMIN', 
+        cpf: userData.cpf || cpfLimpo 
+      } 
+    });
   } catch (error) {
     console.error('Erro Login:', error);
     res.status(500).json({ success: false, message: 'Erro no servidor.' });
   }
 });
 
+// ==========================================================
+// API — MOBILE AUTH (sem authMiddleware — é o ponto de entrada)
+// ==========================================================
+
+// ✅ LOGIN do App Mobile
+app.post('/api/mobile/auth', async (req, res) => {
+  try {
+    const { cpf, senha } = req.body;
+    const cpfLimpo = String(cpf).replace(/\D/g, '');
+    
+    // Buscar no cache
+    let userData = dataStore.usuarios.get(cpfLimpo);
+    if (!userData) {
+      const found = getByFilter('usuarios', u => u.cpf === cpfLimpo);
+      if (found.length > 0) userData = found[0];
+    }
+
+    // Fallback Firestore (cache vazio)
+    if (!userData) {
+      const snapshot = await db.collection('usuarios')
+        .where('cpf', '==', cpfLimpo).limit(1).get();
+      if (!snapshot.empty) userData = snapshot.docs[0].data();
+    }
+
+    if (!userData) {
+      return res.status(401).json({ success: false, message: 'Usuário não encontrado.' });
+    }
+
+    const senhaCorreta = await verificarSenha(senha, userData.senha);
+    if (!senhaCorreta) {
+      return res.status(401).json({ success: false, message: 'Senha incorreta.' });
+    }
+
+    // Migrar senha para bcrypt se necessário
+    if (userData.senha && !userData.senha.startsWith('$2a$') && !userData.senha.startsWith('$2b$')) {
+      migrarSenhaParaBcrypt(cpfLimpo, senha);
+    }
+
+    const token = generateToken({ 
+      cpf: userData.cpf || cpfLimpo, 
+      perfil: userData.perfil || 'USER', 
+      nome: userData.nome 
+    });
+
+    res.json({ 
+      success: true, 
+      token,
+      user: { 
+        nome: userData.nome, 
+        perfil: userData.perfil || 'USER', 
+        cpf: userData.cpf || cpfLimpo
+      }
+    });
+  } catch (error) {
+    console.error('Erro Login Mobile:', error);
+    res.status(500).json({ success: false, message: 'Erro no servidor.' });
+  }
+});
+
+// ==========================================================
+// API — MOBILE SYNC (protegidas por authMiddleware)
+// ==========================================================
+
+// ✅ SYNC DELTA — App baixa apenas o que mudou desde a última sync
+app.get('/api/mobile/sync', authMiddleware, (req, res) => {
+  try {
+    const since = req.query.since || '1970-01-01T00:00:00.000Z';
+    const delta = {};
+    
+    ['alunos', 'quartos', 'embarques', 'eventos'].forEach(col => {
+      const changed = getChangedSince(col, since);
+      if (changed.length > 0) {
+        // Para usuarios, remover campo senha antes de enviar
+        if (col === 'usuarios') {
+          delta[col] = changed.map(u => {
+            const { senha, ...safe } = u;
+            return safe;
+          });
+        } else {
+          delta[col] = changed;
+        }
+      }
+    });
+
+    const storeStats = stats();
+    console.log(`📡 Delta sync: ${Object.values(delta).reduce((acc, arr) => acc + arr.length, 0)} docs alterados enviados para [${req.user.cpf}]`);
+
+    res.json({ 
+      success: true, 
+      serverTime: new Date().toISOString(), 
+      delta,
+      stats: storeStats
+    });
+  } catch (error) {
+    console.error('Erro sync delta:', error);
+    res.status(500).json({ success: false, message: 'Erro na sincronização.' });
+  }
+});
+
+// ✅ UPLOAD BATCH — App envia operações offline acumuladas
+app.post('/api/mobile/sync/upload', authMiddleware, async (req, res) => {
+  try {
+    const { operations } = req.body;
+    
+    if (!operations || !Array.isArray(operations)) {
+      return res.status(400).json({ success: false, message: 'Campo operations é obrigatório (array).' });
+    }
+
+    const results = [];
+    const timestamp = new Date().toISOString();
+    
+    // Processar em batches do Firestore (max 500 ops por commit)
+    const batchSize = 500;
+    for (let i = 0; i < operations.length; i += batchSize) {
+      const chunk = operations.slice(i, i + batchSize);
+      const batch = db.batch();
+      
+      for (const op of chunk) {
+        try {
+          switch (op.type) {
+            case 'log': {
+              const logRef = db.collection('logs').doc();
+              const logData = {
+                ...op.data,
+                timestamp: op.data.timestamp || timestamp,
+                synced_from: 'mobile',
+                synced_by: req.user.cpf
+              };
+              batch.set(logRef, logData);
+              addLog({ id: logRef.id, ...logData }); // Atualiza cache RAM
+              results.push({ id: op.id, status: 'ok' });
+              break;
+            }
+            case 'movimentacao': {
+              const cpf = String(op.data.cpf).replace(/\D/g, '');
+              const alunoRef = db.collection('alunos').doc(cpf);
+              const updateData = {
+                movimentacao: op.data.movimentacao || op.data.novaLocalizacao,
+                updated_at: timestamp,
+                ultimo_usuario: op.data.operador || req.user.nome
+              };
+              batch.update(alunoRef, updateData);
+              
+              // Atualiza cache RAM
+              const aluno = dataStore.alunos.get(cpf);
+              if (aluno) {
+                Object.assign(aluno, updateData);
+                dataStore.alunos.set(cpf, aluno);
+              }
+              
+              // Log da movimentação
+              const logRef = db.collection('logs').doc();
+              const logData = {
+                cpf,
+                nome: op.data.nome || '',
+                tipo: updateData.movimentacao,
+                movimentacao: updateData.movimentacao,
+                usuario: updateData.ultimo_usuario,
+                operador: updateData.ultimo_usuario,
+                timestamp,
+                quarto: op.data.quarto || '',
+                numero_quarto: op.data.numero_quarto || op.data.quarto || ''
+              };
+              batch.set(logRef, logData);
+              addLog({ id: logRef.id, ...logData });
+              
+              results.push({ id: op.id, status: 'ok' });
+              break;
+            }
+            case 'embedding': {
+              const cpf = String(op.data.cpf).replace(/\D/g, '');
+              const alunoRef = db.collection('alunos').doc(cpf);
+              const embData = {
+                embedding: op.data.embedding,
+                facial_cadastrada: true,
+                updated_at: timestamp
+              };
+              batch.set(alunoRef, embData, { merge: true });
+              
+              // Atualiza cache RAM
+              const aluno = dataStore.alunos.get(cpf);
+              if (aluno) {
+                Object.assign(aluno, embData);
+                dataStore.alunos.set(cpf, aluno);
+              }
+              
+              // Atualizar embarque também
+              const embRef = db.collection('embarques').doc(cpf);
+              batch.set(embRef, { 
+                Facial: 'CADASTRADA', 
+                facial_cadastrada: true,
+                updated_at: timestamp
+              }, { merge: true });
+              
+              const embarque = dataStore.embarques.get(cpf);
+              if (embarque) {
+                embarque.Facial = 'CADASTRADA';
+                embarque.facial_cadastrada = true;
+                embarque.updated_at = timestamp;
+                dataStore.embarques.set(cpf, embarque);
+              }
+              
+              results.push({ id: op.id, status: 'ok' });
+              break;
+            }
+            case 'embarque': {
+              const cpf = String(op.data.cpf).replace(/\D/g, '');
+              const embRef = db.collection('embarques').doc(cpf);
+              const embData = { 
+                ...op.data, 
+                updated_at: timestamp 
+              };
+              delete embData.cpf; // CPF já é o ID do doc
+              batch.set(embRef, embData, { merge: true });
+              
+              const embarque = dataStore.embarques.get(cpf);
+              if (embarque) {
+                Object.assign(embarque, embData);
+                dataStore.embarques.set(cpf, embarque);
+              }
+              
+              results.push({ id: op.id, status: 'ok' });
+              break;
+            }
+            default:
+              results.push({ id: op.id, status: 'error', message: `Tipo desconhecido: ${op.type}` });
+          }
+        } catch (opError) {
+          results.push({ id: op.id, status: 'error', message: opError.message });
+        }
+      }
+      
+      await batch.commit();
+    }
+
+    dataStore.lastUpdate.alunos = timestamp;
+    dataStore.lastUpdate.embarques = timestamp;
+
+    console.log(`📥 Upload batch: ${operations.length} operações processadas de [${req.user.cpf}]`);
+    res.json({ success: true, results, serverTime: timestamp });
+  } catch (error) {
+    console.error('Erro upload batch:', error);
+    res.status(500).json({ success: false, message: 'Erro ao processar operações.' });
+  }
+});
+
+// ✅ ALUNOS POR VIAGEM (para o app mobile)
+app.get('/api/mobile/alunos', authMiddleware, (req, res) => {
+  try {
+    const { colegio, inicio } = req.query;
+    let result = getAll('alunos');
+    
+    if (colegio) {
+      result = result.filter(a => a.colegio === colegio);
+    }
+    if (inicio) {
+      result = result.filter(a => a.inicio_viagem === inicio);
+    }
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ EMBARQUES POR VIAGEM (para o app mobile)
+app.get('/api/mobile/embarques', authMiddleware, (req, res) => {
+  try {
+    const { colegio, inicio, idPasseio, onibus } = req.query;
+    let result = getAll('embarques');
+    
+    if (colegio) result = result.filter(e => e.colegio === colegio);
+    if (inicio) result = result.filter(e => e.inicioViagem === inicio);
+    if (idPasseio) result = result.filter(e => e.idPasseio === idPasseio);
+    if (onibus) result = result.filter(e => e.onibus === onibus);
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ==========================================================
+// API — PAINEL WEB (protegidas por authMiddleware)
+// ==========================================================
+
 // ✅ ROTA DE IMPORTAÇÃO (Salva nas tabelas 'quartos', 'embarques' e 'alunos')
-app.post('/api/importar', async (req, res) => {
+app.post('/api/importar', authMiddleware, async (req, res) => {
   try {
     const { alunos } = req.body;
 
@@ -191,8 +572,8 @@ app.post('/api/importar', async (req, res) => {
       if (!cpfLimpo) return;
 
       const agora = new Date();
+      const timestamp = agora.toISOString();
 
-      // 🟢 CORREÇÃO: Definir a variável antes de usar nos objetos
       // Verifica se o campo 'facial' na planilha é true ou o texto "sim"
       const isFacial = aluno.facial === true || 
                        (aluno.facial && String(aluno.facial).toLowerCase() === 'sim');
@@ -206,9 +587,9 @@ app.post('/api/importar', async (req, res) => {
         numero_quarto: aluno.quarto || aluno.numero_quarto || '',
         inicio_viagem: formatarDataCurta(aluno.inicio_viagem),
         fim_viagem: formatarDataCurta(aluno.fim_viagem),
-        facial: isFacial, // Agora a variável existe!
+        facial: isFacial,
         created_at: agora,
-        updated_at: agora
+        updated_at: timestamp
       };
 
       // Salva em 'alunos'
@@ -221,11 +602,10 @@ app.post('/api/importar', async (req, res) => {
         inicio_viagem: formatarDataCurta(aluno.inicio_viagem),
         fim_viagem: formatarDataCurta(aluno.fim_viagem),
         movimentacao: 'QUARTO',
-        facial: isFacial, // Agora a variável existe!
-        updated_at: agora
+        facial: isFacial,
+        updated_at: timestamp
       };
 
-      // ... restante do código (dadosEmbarque e set)
       const embarqueRef = db.collection('embarques').doc(cpfLimpo);
       const cleanString = (str) => str ? String(str).trim().replace(/\s+/g, ' ') : '';
 
@@ -243,8 +623,13 @@ app.post('/api/importar', async (req, res) => {
         embarque: "",
         retorno: "",
         created_at: agora,
-        updated_at: agora
+        updated_at: timestamp
       };
+
+      // Atualiza cache RAM imediatamente
+      dataStore.quartos.set(cpfLimpo, { id: cpfLimpo, ...dadosQuarto });
+      dataStore.alunos.set(cpfLimpo, { id: cpfLimpo, ...dadosAluno });
+      dataStore.embarques.set(cpfLimpo, { id: cpfLimpo, ...dadosEmbarque });
 
       return Promise.all([
         quartoRef.set(dadosQuarto, { merge: true }),
@@ -254,6 +639,12 @@ app.post('/api/importar', async (req, res) => {
     });
 
     await Promise.all(promessas);
+    
+    const ts = new Date().toISOString();
+    dataStore.lastUpdate.quartos = ts;
+    dataStore.lastUpdate.alunos = ts;
+    dataStore.lastUpdate.embarques = ts;
+
     res.json({ success: true, message: `${alunos.length} registros processados.` });
 
   } catch (error) {
@@ -262,61 +653,41 @@ app.post('/api/importar', async (req, res) => {
   }
 });
 
-// ✅ EMBARQUE LISTA (Lê da tabela 'embarques') [ATUALIZADA]
-// ✅ EMBARQUE LISTA (Lê da tabela 'embarques' com filtros completos)
-app.get('/api/embarque-lista', async (req, res) => {
+// ✅ EMBARQUE LISTA (Lê do cache RAM)
+app.get('/api/embarque-lista', authMiddleware, async (req, res) => {
   try {
     const { inicio, fim } = req.query;
     
-    let query = db.collection('embarques');
+    let embarques = getAll('embarques');
 
-    // 1. Filtro de Início de Viagem
+    // Filtros
     if (inicio) {
-        const inicioCurto = formatarDataCurta(inicio); // Converte YYYY-MM-DD -> DD/MM
-        query = query.where('inicioViagem', '==', inicioCurto);
+      const inicioCurto = formatarDataCurta(inicio);
+      embarques = embarques.filter(e => e.inicioViagem === inicioCurto);
     }
-
-    // 2. Filtro de Fim de Viagem
     if (fim) {
-        const fimCurto = formatarDataCurta(fim); // Converte YYYY-MM-DD -> DD/MM
-        query = query.where('fimViagem', '==', fimCurto);
+      const fimCurto = formatarDataCurta(fim);
+      embarques = embarques.filter(e => e.fimViagem === fimCurto);
     }
 
-    const snapshot = await query.get();
-    const listaEmbarque = [];
-
-    snapshot.forEach(doc => {
-        const dados = doc.data();
-        listaEmbarque.push({
-            // Identificação
-            cpf: dados.cpf,
-            nome: dados.nome,
-            rg: dados.cpf, // Usando CPF como RG para compatibilidade visual
-            turma: dados.turma || '',
-
-            // Logística
-            onibus: dados.onibus || '',
-            poltrona: '', // Campo não existente na importação atual, envia vazio
-            emissor: '',
-
-            // Controle de Grupo (ESSENCIAIS PARA O QR CODE)
-            idPasseio: dados.idPasseio || '',
-            colegio: dados.colegio || '',
-
-            // Status de Embarque e Retorno
-            embarque: dados.embarque || '',
-            retorno: dados.retorno || '',
-            status_embarque: dados.embarque ? 'EMBARCADO' : 'PENDENTE',
-
-            // Facial
-            facial_cadastrada: dados.facial_cadastrada || false,
-            status_facial: dados.Facial || 'PENDENTE',
-
-            // Datas (cruas para debug ou exibição)
-            inicio_viagem: dados.inicioViagem,
-            fim_viagem: dados.fimViagem
-        });
-    });
+    const listaEmbarque = embarques.map(dados => ({
+      cpf: dados.cpf,
+      nome: dados.nome,
+      rg: dados.cpf,
+      turma: dados.turma || '',
+      onibus: dados.onibus || '',
+      poltrona: '',
+      emissor: '',
+      idPasseio: dados.idPasseio || '',
+      colegio: dados.colegio || '',
+      embarque: dados.embarque || '',
+      retorno: dados.retorno || '',
+      status_embarque: dados.embarque ? 'EMBARCADO' : 'PENDENTE',
+      facial_cadastrada: dados.facial_cadastrada || false,
+      status_facial: dados.Facial || 'PENDENTE',
+      inicio_viagem: dados.inicioViagem,
+      fim_viagem: dados.fimViagem
+    }));
 
     res.json({ status: 'sucesso', passageiros: listaEmbarque });
 
@@ -327,29 +698,21 @@ app.get('/api/embarque-lista', async (req, res) => {
 });
 
 // ✅ MOVIMENTAR (Mantém logs e atualiza status)
-// --- SISTEMA DE CACHE EM MEMÓRIA ---
-// DECLARE AQUI EM CIMA PARA TODAS AS ROTAS ENXERGAREM
-let cachePessoas = {
-  data: null,
-  lastFetch: 0
-};
-const CACHE_TTL = 10000; // Cache dura 10 segundos
-
-
-app.post('/api/movimentar', async (req, res) => {
+app.post('/api/movimentar', authMiddleware, async (req, res) => {
   try {
     const { cpf, novaLocalizacao, nome, nome_hospede, colegio, turma, quarto, numero_quarto, operador } = req.body;
     const timestamp = new Date().toISOString();
-    const usuarioResp = operador || 'Sistema';
+    const usuarioResp = operador || req.user.nome || 'Sistema';
 
     const nomeAluno = nome_hospede || nome;
     const numeroQuarto = numero_quarto || quarto;
 
     console.log(`📍 Movimentando ${nomeAluno} -> ${novaLocalizacao}`);
 
-    // Atualiza tabela 'alunos'
+    // Atualiza tabela 'alunos' no Firestore
+    const cpfLimpo = String(cpf).replace(/\D/g, '');
     const alunosRef = db.collection('alunos');
-    const snapshot = await alunosRef.where('cpf', '==', cpf).limit(1).get();
+    const snapshot = await alunosRef.where('cpf', '==', cpfLimpo).limit(1).get();
 
     if (!snapshot.empty) {
         await snapshot.docs[0].ref.update({
@@ -359,9 +722,18 @@ app.post('/api/movimentar', async (req, res) => {
         });
     }
 
+    // Atualiza cache RAM
+    const alunoCache = dataStore.alunos.get(cpfLimpo);
+    if (alunoCache) {
+      alunoCache.movimentacao = novaLocalizacao;
+      alunoCache.updated_at = timestamp;
+      alunoCache.ultimo_usuario = usuarioResp;
+      dataStore.alunos.set(cpfLimpo, alunoCache);
+    }
+
     // Cria Log
-    await db.collection('logs').add({
-      cpf,
+    const logData = {
+      cpf: cpfLimpo,
       nome: nomeAluno,
       nome_hospede: nomeAluno,
       tipo: novaLocalizacao,
@@ -371,11 +743,11 @@ app.post('/api/movimentar', async (req, res) => {
       timestamp,
       quarto: numeroQuarto,
       numero_quarto: numeroQuarto
-    });
+    };
+    const logRef = await db.collection('logs').add(logData);
+    addLog({ id: logRef.id, ...logData });
 
-    // 👇 AQUI ESTÁ A MÁGICA PARA O TEMPO REAL FUNCIONAR
-    // Limpamos o cache imediatamente após salvar no banco
-    cachePessoas.data = null;
+    dataStore.lastUpdate.alunos = timestamp;
 
     res.json({ success: true });
   } catch (e) {
@@ -384,38 +756,25 @@ app.post('/api/movimentar', async (req, res) => {
   }
 });
 
-
-// ✅ OUTRAS ROTAS (Quartos, Viagens, Logs, Pessoas) MANTIDAS
-app.get('/api/pessoas', async (req, res) => {
+// ✅ PESSOAS (Lê do cache RAM)
+app.get('/api/pessoas', authMiddleware, (req, res) => {
   try {
-    const now = Date.now();
+    console.log('⚡ Retornando /api/pessoas do CACHE em memória');
+    
+    // Filtra apenas alunos com facial === true
+    const quartosComFacial = getByFilter('quartos', q => q.facial === true);
+    const alunosComFacial = getByFilter('alunos', a => a.facial === true);
 
-    // 1. BLINDAGEM: Se vários computadores pedirem ao mesmo tempo, retorna da memória!
-    if (cachePessoas.data && (now - cachePessoas.lastFetch < CACHE_TTL)) {
-      console.log('⚡ Retornando /api/pessoas do CACHE em memória');
-      return res.json({ success: true, data: cachePessoas.data, fromCache: true });
-    }
-
-    console.log('🔥 Buscando /api/pessoas no Firestore...');
-    // 2. Busca no banco de dados apenas se o cache expirou
-   const [quartosSnapshot, alunosSnapshot] = await Promise.all([
-      db.collection('quartos').where('facial', '==', true).get(), // 🟢 FILTRADO
-      db.collection('alunos').where('facial', '==', true).get()    // 🟢 FILTRADO
-    ]);
-
+    // Cria mapa de movimentações
     const movimentacoesPorCpf = new Map();
-    alunosSnapshot.forEach(doc => {
-      const data = doc.data();
-      movimentacoesPorCpf.set(data.cpf, data.movimentacao || 'QUARTO');
+    alunosComFacial.forEach(a => {
+      movimentacoesPorCpf.set(a.cpf, a.movimentacao || 'QUARTO');
     });
 
-    const pessoas = [];
-    quartosSnapshot.forEach(doc => {
-      const quarto = doc.data();
+    const pessoas = quartosComFacial.map(quarto => {
       const movimentacao = movimentacoesPorCpf.get(quarto.cpf) || 'QUARTO';
-
-      pessoas.push({
-        id: doc.id,
+      return {
+        id: quarto.id,
         cpf: quarto.cpf,
         nome: quarto.nome_hospede,
         nome_hospede: quarto.nome_hospede,
@@ -428,12 +787,8 @@ app.get('/api/pessoas', async (req, res) => {
         movimentacao: movimentacao,
         created_at: quarto.created_at,
         updated_at: quarto.updated_at
-      });
+      };
     });
-
-    // 3. Salva os dados processados na memória
-    cachePessoas.data = pessoas;
-    cachePessoas.lastFetch = now;
 
     res.json({ success: true, data: pessoas });
   } catch (e) {
@@ -442,28 +797,20 @@ app.get('/api/pessoas', async (req, res) => {
   }
 });
 
-app.get('/api/quartos', async (req, res) => {
+// ✅ QUARTOS (Lê do cache RAM)
+app.get('/api/quartos', authMiddleware, (req, res) => {
     try {
-      // Busca dados das duas coleções em paralelo
-     const [quartosSnapshot, alunosSnapshot] = await Promise.all([
-        db.collection('quartos').where('facial', '==', true).get(), // 🟢 FILTRADO
-        db.collection('alunos').where('facial', '==', true).get()    // 🟢 FILTRADO
-      ]);
+      const quartosComFacial = getByFilter('quartos', q => q.facial === true);
+      const alunosComFacial = getByFilter('alunos', a => a.facial === true);
 
-      // Cria mapa de movimentações por CPF
       const movimentacoesPorCpf = new Map();
-      alunosSnapshot.forEach(doc => {
-        const data = doc.data();
-        movimentacoesPorCpf.set(data.cpf, data.movimentacao || 'VOLTOU_AO_QUARTO');
+      alunosComFacial.forEach(a => {
+        movimentacoesPorCpf.set(a.cpf, a.movimentacao || 'VOLTOU_AO_QUARTO');
       });
 
-      // Retorna todos os dados dos alunos por quarto
-      const todosQuartos = [];
-      quartosSnapshot.forEach(doc => {
-        const quarto = doc.data();
+      const todosQuartos = quartosComFacial.map(quarto => {
         const movimentacao = movimentacoesPorCpf.get(quarto.cpf) || 'VOLTOU_AO_QUARTO';
-
-        todosQuartos.push({
+        return {
           'Quarto': quarto.numero_quarto || '',
           'quarto': quarto.numero_quarto || '',
           'Nome do Hóspede': quarto.nome_hospede || '',
@@ -476,7 +823,7 @@ app.get('/api/quartos', async (req, res) => {
           'movimentacao': movimentacao,
           'inicio_viagem': quarto.inicio_viagem || '',
           'fim_viagem': quarto.fim_viagem || ''
-        });
+        };
       });
 
       res.json({ success: true, data: todosQuartos });
@@ -486,34 +833,46 @@ app.get('/api/quartos', async (req, res) => {
     }
 });
 
-app.get('/api/logs', async (req, res) => {
+// ✅ LOGS (Lê do cache RAM, com filtro por CPF)
+app.get('/api/logs', authMiddleware, (req, res) => {
     try {
       const { cpf } = req.query;
-      let query = db.collection('logs').orderBy('timestamp', 'desc');
+      let logsResult;
+
       if (cpf) {
         const cpfRaw = String(cpf);
         const cpfLimpo = cpfRaw.replace(/\D/g, '');
         const cpfFormatado = formatarCPF(cpfLimpo);
         const termosBusca = [...new Set([cpfRaw, cpfLimpo, cpfFormatado])].filter(t => t.length > 0);
-        query = query.where('cpf', 'in', termosBusca);
+        
+        logsResult = getByFilter('logs', log => 
+          termosBusca.some(t => String(log.cpf) === t)
+        );
       } else {
-        query = query.limit(100);
+        logsResult = getAll('logs').slice(0, 100);
       }
-      const snapshot = await query.get();
-      const logs = [];
-      snapshot.forEach(doc => logs.push(doc.data()));
-      res.json({ success: true, data: logs });
-    } catch (error) { res.status(500).json({ success: false }); }
+
+      // Ordenar por timestamp desc
+      logsResult.sort((a, b) => {
+        const tA = new Date(a.timestamp || 0).getTime();
+        const tB = new Date(b.timestamp || 0).getTime();
+        return tB - tA;
+      });
+
+      res.json({ success: true, data: logsResult });
+    } catch (error) { 
+      console.error('Erro em /api/logs:', error);
+      res.status(500).json({ success: false }); 
+    }
 });
 
-app.get('/api/viagens', async (req, res) => {
-    // Lê de 'quartos' para pegar as viagens cadastradas
+// ✅ VIAGENS (Lê do cache RAM)
+app.get('/api/viagens', authMiddleware, (req, res) => {
     try {
-      const snapshot = await db.collection('quartos').get();
+      const quartos = getAll('quartos');
       const viagensMap = new Map();
 
-      snapshot.forEach(doc => {
-        const q = doc.data();
+      quartos.forEach(q => {
         const inicio = q.inicio_viagem;
         const fim = q.fim_viagem;
 
@@ -536,14 +895,18 @@ app.get('/api/viagens', async (req, res) => {
     }
 });
 
-// ✅ API DE USUÁRIOS
+// ==========================================================
+// API DE USUÁRIOS (protegidas por authMiddleware + requireAdmin)
+// ==========================================================
 
 // Listar todos os usuários
-app.get('/api/usuarios', async (req, res) => {
+app.get('/api/usuarios', authMiddleware, requireAdmin, (req, res) => {
   try {
-    const snapshot = await db.collection('usuarios').get();
-    const usuarios = [];
-    snapshot.forEach(doc => usuarios.push(doc.data()));
+    const usuarios = getAll('usuarios').map(u => {
+      // Nunca enviar senhas para o frontend
+      const { senha, ...safe } = u;
+      return safe;
+    });
     res.json({ success: true, data: usuarios });
   } catch (error) {
     console.error('Erro ao buscar usuários:', error);
@@ -552,7 +915,7 @@ app.get('/api/usuarios', async (req, res) => {
 });
 
 // Criar novo usuário
-app.post('/api/usuarios', async (req, res) => {
+app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const { cpf, nome, senha, perfil, ativo } = req.body;
 
@@ -562,23 +925,26 @@ app.post('/api/usuarios', async (req, res) => {
 
     const cpfLimpo = String(cpf).replace(/\D/g, '');
 
-    // Verifica se já existe
-    const userRef = db.collection('usuarios').doc(cpfLimpo);
-    const doc = await userRef.get();
-
-    if (doc.exists) {
+    // Verifica se já existe (no cache)
+    if (dataStore.usuarios.has(cpfLimpo)) {
       return res.status(400).json({ success: false, message: 'Usuário com este CPF já existe.' });
     }
+
+    // Hash da senha com bcrypt
+    const senhaHash = await bcrypt.hash(senha, 10);
 
     const userData = {
       cpf: cpfLimpo,
       nome: nome.trim(),
-      senha: senha,  // Em produção, use hash (bcrypt)
+      senha: senhaHash,
       perfil: perfil || 'USER',
       ativo: ativo !== false
     };
 
-    await userRef.set(userData);
+    await db.collection('usuarios').doc(cpfLimpo).set(userData);
+    
+    // Atualiza cache RAM
+    dataStore.usuarios.set(cpfLimpo, { id: cpfLimpo, ...userData, updated_at: new Date().toISOString() });
 
     res.json({ success: true, message: 'Usuário criado com sucesso!' });
   } catch (error) {
@@ -588,31 +954,37 @@ app.post('/api/usuarios', async (req, res) => {
 });
 
 // Atualizar usuário
-app.put('/api/usuarios/:cpf', async (req, res) => {
+app.put('/api/usuarios/:cpf', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const { cpf } = req.params;
     const { nome, senha, perfil, ativo } = req.body;
 
     const cpfLimpo = String(cpf).replace(/\D/g, '');
-    const userRef = db.collection('usuarios').doc(cpfLimpo);
-    const doc = await userRef.get();
-
-    if (!doc.exists) {
+    
+    if (!dataStore.usuarios.has(cpfLimpo)) {
       return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
     }
 
     const updateData = {
       nome: nome.trim(),
       perfil: perfil || 'USER',
-      ativo: ativo !== false
+      ativo: ativo !== false,
+      updated_at: new Date().toISOString()
     };
 
-    // Só atualiza senha se foi fornecida
+    // Só atualiza senha se foi fornecida — sempre com bcrypt
     if (senha) {
-      updateData.senha = senha;
+      updateData.senha = await bcrypt.hash(senha, 10);
     }
 
-    await userRef.update(updateData);
+    await db.collection('usuarios').doc(cpfLimpo).update(updateData);
+    
+    // Atualiza cache RAM
+    const existing = dataStore.usuarios.get(cpfLimpo);
+    if (existing) {
+      Object.assign(existing, updateData);
+      dataStore.usuarios.set(cpfLimpo, existing);
+    }
 
     res.json({ success: true, message: 'Usuário atualizado com sucesso!' });
   } catch (error) {
@@ -622,12 +994,15 @@ app.put('/api/usuarios/:cpf', async (req, res) => {
 });
 
 // Excluir usuário
-app.delete('/api/usuarios/:cpf', async (req, res) => {
+app.delete('/api/usuarios/:cpf', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const { cpf } = req.params;
     const cpfLimpo = String(cpf).replace(/\D/g, '');
 
     await db.collection('usuarios').doc(cpfLimpo).delete();
+    
+    // Remove do cache RAM
+    dataStore.usuarios.delete(cpfLimpo);
 
     res.json({ success: true, message: 'Usuário excluído com sucesso!' });
   } catch (error) {
@@ -636,9 +1011,12 @@ app.delete('/api/usuarios/:cpf', async (req, res) => {
   }
 });
 
-// ✅ API PARA ATRIBUIR QUARTO
+// ==========================================================
+// API DE QUARTOS
+// ==========================================================
 
-app.post('/api/atribuir-quarto', async (req, res) => {
+// ✅ ATRIBUIR QUARTO (individual)
+app.post('/api/atribuir-quarto', authMiddleware, async (req, res) => {
   try {
     const { cpf, numero_quarto, nome_hospede, colegio, inicio_viagem, fim_viagem } = req.body;
 
@@ -648,22 +1026,17 @@ app.post('/api/atribuir-quarto', async (req, res) => {
 
     const cpfLimpo = String(cpf).replace(/\D/g, '');
 
-    // 1. Busca e remove TODOS os documentos existentes com este CPF (para evitar duplicatas)
+    // Remove documentos existentes com este CPF
     const querySnapshot = await db.collection('quartos').where('cpf', '==', cpfLimpo).get();
     const deletePromises = [];
     querySnapshot.forEach(doc => {
-      console.log(`Removendo documento antigo com ID: ${doc.id} para CPF: ${cpfLimpo}`);
       deletePromises.push(doc.ref.delete());
+      dataStore.quartos.delete(doc.id);
     });
+    if (deletePromises.length > 0) await Promise.all(deletePromises);
 
-    if (deletePromises.length > 0) {
-      await Promise.all(deletePromises);
-      console.log(`${deletePromises.length} documento(s) antigo(s) removido(s) para CPF: ${cpfLimpo}`);
-    }
-
-    // 2. Cria novo documento usando CPF como ID
+    // Cria novo documento
     const quartoRef = db.collection('quartos').doc(cpfLimpo);
-
     const dadosQuarto = {
       cpf: cpfLimpo,
       numero_quarto: numero_quarto.trim(),
@@ -671,11 +1044,16 @@ app.post('/api/atribuir-quarto', async (req, res) => {
       colegio: colegio || '',
       inicio_viagem: inicio_viagem || '',
       fim_viagem: fim_viagem || '',
+      facial: true,
       created_at: new Date(),
-      updated_at: new Date()
+      updated_at: new Date().toISOString()
     };
 
     await quartoRef.set(dadosQuarto);
+    
+    // Atualiza cache RAM
+    dataStore.quartos.set(cpfLimpo, { id: cpfLimpo, ...dadosQuarto });
+    dataStore.lastUpdate.quartos = new Date().toISOString();
 
     res.json({ success: true, message: 'Quarto atribuído com sucesso!' });
   } catch (error) {
@@ -684,26 +1062,68 @@ app.post('/api/atribuir-quarto', async (req, res) => {
   }
 });
 
-// ✅ API PARA REMOVER QUARTO
+// ✅ ATRIBUIR QUARTOS EM BATCH (NOVO — resolve o N+1 do homelist.js)
+app.post('/api/atribuir-quartos-batch', authMiddleware, async (req, res) => {
+  try {
+    const { alunos } = req.body;
 
-app.delete('/api/remover-quarto/:cpf', async (req, res) => {
+    if (!alunos || !Array.isArray(alunos) || alunos.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array de alunos é obrigatório.' });
+    }
+
+    const timestamp = new Date().toISOString();
+    const batch = db.batch();
+
+    for (const aluno of alunos) {
+      const cpfLimpo = String(aluno.cpf).replace(/\D/g, '');
+      if (!cpfLimpo || !aluno.numero_quarto) continue;
+
+      const quartoRef = db.collection('quartos').doc(cpfLimpo);
+      const dadosQuarto = {
+        cpf: cpfLimpo,
+        numero_quarto: String(aluno.numero_quarto).trim(),
+        nome_hospede: aluno.nome_hospede || aluno.nome || '',
+        colegio: aluno.colegio || '',
+        inicio_viagem: aluno.inicio_viagem || '',
+        fim_viagem: aluno.fim_viagem || '',
+        facial: true,
+        created_at: new Date(),
+        updated_at: timestamp
+      };
+
+      batch.set(quartoRef, dadosQuarto, { merge: true });
+      
+      // Atualiza cache RAM
+      dataStore.quartos.set(cpfLimpo, { id: cpfLimpo, ...dadosQuarto });
+    }
+
+    await batch.commit();
+    dataStore.lastUpdate.quartos = timestamp;
+
+    res.json({ success: true, message: `${alunos.length} quartos atribuídos com sucesso!` });
+  } catch (error) {
+    console.error('Erro ao atribuir quartos em batch:', error);
+    res.status(500).json({ success: false, message: 'Erro ao atribuir quartos.' });
+  }
+});
+
+// ✅ REMOVER QUARTO
+app.delete('/api/remover-quarto/:cpf', authMiddleware, async (req, res) => {
   try {
     const { cpf } = req.params;
     const cpfLimpo = String(cpf).replace(/\D/g, '');
 
-    // Busca e remove TODOS os documentos existentes com este CPF
     const querySnapshot = await db.collection('quartos').where('cpf', '==', cpfLimpo).get();
     const deletePromises = [];
 
     querySnapshot.forEach(doc => {
-      console.log(`Removendo quarto com ID: ${doc.id} para CPF: ${cpfLimpo}`);
       deletePromises.push(doc.ref.delete());
+      dataStore.quartos.delete(doc.id);
     });
 
-    if (deletePromises.length > 0) {
-      await Promise.all(deletePromises);
-      console.log(`${deletePromises.length} quarto(s) removido(s) para CPF: ${cpfLimpo}`);
-    }
+    if (deletePromises.length > 0) await Promise.all(deletePromises);
+    
+    dataStore.lastUpdate.quartos = new Date().toISOString();
 
     res.json({ success: true, message: 'Quarto removido com sucesso!' });
   } catch (error) {
@@ -712,17 +1132,46 @@ app.delete('/api/remover-quarto/:cpf', async (req, res) => {
   }
 });
 
+// ✅ REMOVER QUARTOS EM BATCH (NOVO — resolve o N+1 do homelist.js)
+app.post('/api/remover-quartos-batch', authMiddleware, async (req, res) => {
+  try {
+    const { cpfs } = req.body;
+
+    if (!cpfs || !Array.isArray(cpfs) || cpfs.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array de CPFs é obrigatório.' });
+    }
+
+    const batch = db.batch();
+    let removidos = 0;
+
+    for (const cpf of cpfs) {
+      const cpfLimpo = String(cpf).replace(/\D/g, '');
+      const quartoRef = db.collection('quartos').doc(cpfLimpo);
+      batch.delete(quartoRef);
+      dataStore.quartos.delete(cpfLimpo);
+      removidos++;
+    }
+
+    await batch.commit();
+    dataStore.lastUpdate.quartos = new Date().toISOString();
+
+    res.json({ success: true, message: `${removidos} quartos removidos com sucesso!` });
+  } catch (error) {
+    console.error('Erro ao remover quartos em batch:', error);
+    res.status(500).json({ success: false, message: 'Erro ao remover quartos.' });
+  }
+});
+
 // ==========================================================
-// ✅ ROTAS DE GERENCIAMENTO DE VIAGENS
+// ROTAS DE GERENCIAMENTO DE VIAGENS
 // ==========================================================
 
-app.get('/api/viagens-unicas', async (req, res) => {
+app.get('/api/viagens-unicas', authMiddleware, (req, res) => {
   try {
-    const snapshot = await db.collection('alunos').get();
+    const alunos = getAll('alunos');
     const viagensMap = new Map();
 
-    snapshot.forEach(doc => {
-      const d = doc.data();
+    alunos.forEach(d => {
       const colegio = d.colegio || 'Sem Colégio';
       const inicio = d.inicio_viagem || '0000-00-00';
       const fim = d.fim_viagem || '0000-00-00';
@@ -740,15 +1189,14 @@ app.get('/api/viagens-unicas', async (req, res) => {
       }
     });
 
-    const viagensArray = Array.from(viagensMap.values());
-    res.json({ success: true, data: viagensArray });
+    res.json({ success: true, data: Array.from(viagensMap.values()) });
   } catch (e) {
     console.error('Erro ao listar viagens únicas:', e);
     res.status(500).json({ success: false, message: e.message });
   }
 });
 
-app.delete('/api/viagens/excluir', async (req, res) => {
+app.delete('/api/viagens/excluir', authMiddleware, async (req, res) => {
   try {
     const { colegio, inicio_viagem, operador } = req.body;
     
@@ -769,42 +1217,41 @@ app.delete('/api/viagens/excluir', async (req, res) => {
 
     alunosSnapshot.forEach(doc => {
       batch.delete(doc.ref);
+      dataStore.alunos.delete(doc.id);
       deletados++;
     });
 
     quartosSnapshot.forEach(doc => {
       batch.delete(doc.ref);
+      dataStore.quartos.delete(doc.id);
       deletados++;
     });
 
     // Registra Log de Auditoria
     const timestamp = new Date().toISOString();
     const logRef = db.collection('logs').doc();
-    batch.set(logRef, {
+    const logData = {
       tipo: 'EXCLUSAO_VIAGEM',
       colegio: colegio,
       inicio_viagem: inicio_viagem,
       documentos_removidos: deletados,
-      operador: operador || 'Sistema',
+      operador: operador || req.user.nome || 'Sistema',
       timestamp: timestamp
-    });
+    };
+    batch.set(logRef, logData);
+    addLog({ id: logRef.id, ...logData });
 
-    // Executa tudo de uma vez
     if (deletados > 0) {
       await batch.commit();
     }
 
-    console.log(`🗑️ Viagem excluída: ${colegio} (${deletados} docs) por ${operador}`);
+    console.log(`🗑️ Viagem excluída: ${colegio} (${deletados} docs) por ${operador || req.user.nome}`);
 
-    // Limpa o cache para que os painéis web não mostrem mais esses alunos
-    if (typeof cachePessoas !== 'undefined') {
-      cachePessoas.data = null;
-    }
+    dataStore.lastUpdate.alunos = timestamp;
+    dataStore.lastUpdate.quartos = timestamp;
 
-    // Avisa os painéis via Socket para atualizarem a tela e removerem os alunos
-    if (typeof io !== 'undefined') {
-      io.emit('dados_atualizados', { tipo: 'exclusao_lote' });
-    }
+    // Avisa os painéis via Socket para atualizarem
+    io.emit('dados_atualizados', { tipo: 'exclusao_lote' });
 
     res.json({ success: true });
   } catch (e) {
@@ -813,21 +1260,10 @@ app.delete('/api/viagens/excluir', async (req, res) => {
   }
 });
 
-db.collection('alunos').onSnapshot(snapshot => {
-  console.log('🔔 Mudança detectada no Firestore! Notificando clientes...');
-  
-  // 🟢 LINHA ESSENCIAL: Limpa o cache para que os painéis 
-  // carreguem a informação nova vinda do App
-  cachePessoas.data = null; 
-
-  io.emit('dados_atualizados', { 
-    timestamp: new Date().toISOString(),
-    tipo: 'alunos'
-  });
-}, error => {
-  console.error('❌ Erro no listener do Firestore:', error);
-});
-
+// ==========================================================
+// INICIAR SERVIDOR
+// ==========================================================
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 Servidor com WebSockets rodando em http://localhost:${PORT}`);
+  console.log(`🔐 Autenticação JWT: ${process.env.JWT_SECRET ? 'ATIVADA' : '⚠️ DESATIVADA (JWT_SECRET não definido)'}`);
 });

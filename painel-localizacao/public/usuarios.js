@@ -1,3 +1,20 @@
+function getAuthHeaders() {
+  const token = localStorage.getItem('painel_token');
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+}
+
+async function authFetch(url, options = {}) {
+  options.headers = { ...getAuthHeaders(), ...(options.headers || {}) };
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    localStorage.removeItem('painel_token');
+    localStorage.removeItem('painel_user');
+    window.location.href = '/login';
+    throw new Error('Sessão expirada');
+  }
+  return response;
+}
+
 let usuariosData = [];
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -41,7 +58,7 @@ async function carregarUsuarios() {
     if (loading) loading.classList.remove('hidden');
 
     try {
-        const res = await fetch('/api/usuarios');
+        const res = await authFetch('/api/usuarios');
         const json = await res.json();
 
         if (json.success) {
@@ -180,7 +197,7 @@ async function salvarUsuario(event) {
         const url = usuarioId ? `/api/usuarios/${cpfLimpo}` : '/api/usuarios';
         const method = usuarioId ? 'PUT' : 'POST';
 
-        const res = await fetch(url, {
+        const res = await authFetch(url, {
             method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(dados)
@@ -211,7 +228,7 @@ async function excluirUsuario(cpf) {
     toggleLoading(true, 'Excluindo usuário...');
 
     try {
-        const res = await fetch(`/api/usuarios/${cpf}`, {
+        const res = await authFetch(`/api/usuarios/${cpf}`, {
             method: 'DELETE'
         });
 

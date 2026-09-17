@@ -1,3 +1,20 @@
+function getAuthHeaders() {
+  const token = localStorage.getItem('painel_token');
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+}
+
+async function authFetch(url, options = {}) {
+  options.headers = { ...getAuthHeaders(), ...(options.headers || {}) };
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    localStorage.removeItem('painel_token');
+    localStorage.removeItem('painel_user');
+    window.location.href = '/login';
+    throw new Error('Sessão expirada');
+  }
+  return response;
+}
+
 let viagensTotais = [];
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -9,7 +26,7 @@ async function carregarViagens() {
     tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Carregando viagens...</td></tr>';
 
     try {
-        const response = await fetch('/api/viagens-unicas');
+        const response = await authFetch('/api/viagens-unicas');
         const result = await response.json();
 
         if (result.success) {
@@ -89,14 +106,14 @@ function confirmarExclusao(colegio, dataInicio) {
 async function excluirViagem(colegio, dataInicio) {
     try {
         // Obter usuário logado do localStorage (ou colocar 'Admin' se não houver)
-        const userLogadoStr = localStorage.getItem('usuarioLogado');
+        const userLogadoStr = localStorage.getItem('painel_user');
         let usuarioNome = 'Sistema';
         if (userLogadoStr) {
             const userLogado = JSON.parse(userLogadoStr);
             usuarioNome = userLogado.nome || 'Sistema';
         }
 
-        const response = await fetch('/api/viagens/excluir', {
+        const response = await authFetch('/api/viagens/excluir', {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 

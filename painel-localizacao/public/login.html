@@ -70,6 +70,7 @@
             // Verifica perfil se necessário
             if(usuario.perfil === 'ADMIN' || true) { // "|| true" remove a trava de admin se quiser liberar geral
                 localStorage.setItem('painel_user', JSON.stringify(usuario));
+                if (data.token) localStorage.setItem('painel_token', data.token);
                 window.location.href = '/home';
             } else {
                  throw new Error('Usuário sem permissão de acesso.');

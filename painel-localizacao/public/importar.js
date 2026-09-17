@@ -1,3 +1,20 @@
+function getAuthHeaders() {
+  const token = localStorage.getItem('painel_token');
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+}
+
+async function authFetch(url, options = {}) {
+  options.headers = { ...getAuthHeaders(), ...(options.headers || {}) };
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    localStorage.removeItem('painel_token');
+    localStorage.removeItem('painel_user');
+    window.location.href = '/login';
+    throw new Error('Sessão expirada');
+  }
+  return response;
+}
+
 let alunosParaImportar = [];
 let gruposEncontrados = {};
 
@@ -214,7 +231,7 @@ async function enviarDados() {
     }));
 
     try {
-        const res = await fetch('/api/importar', {
+        const res = await authFetch('/api/importar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ alunos: payload })
@@ -250,7 +267,7 @@ async function buscarGrupos() {
 
     toggleLoading(true, 'Buscando grupos...');
     try {
-        const res = await fetch(`/api/embarque-lista?inicio=${dataInicio}`);
+        const res = await authFetch(`/api/embarque-lista?inicio=${dataInicio}`);
         const json = await res.json();
         if (json.status === 'sucesso') agruparDados(json.passageiros || []);
         else alert('Erro ao buscar dados: ' + (json.mensagem || 'Desconhecido'));

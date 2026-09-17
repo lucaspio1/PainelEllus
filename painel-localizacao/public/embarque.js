@@ -1,3 +1,20 @@
+function getAuthHeaders() {
+  const token = localStorage.getItem('painel_token');
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+}
+
+async function authFetch(url, options = {}) {
+  options.headers = { ...getAuthHeaders(), ...(options.headers || {}) };
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    localStorage.removeItem('painel_token');
+    localStorage.removeItem('painel_user');
+    window.location.href = '/login';
+    throw new Error('Sessão expirada');
+  }
+  return response;
+}
+
 const apiURL = '/api/embarque-lista';
 let dadosGlobais = [];
 let autoRefreshInterval = null;
@@ -11,15 +28,11 @@ document.addEventListener('DOMContentLoaded', () => {
         renderizarListas(e.target.value);
     });
 
-    // ✅ ATUALIZAÇÃO AUTOMÁTICA (30 segundos)
-    autoRefreshInterval = setInterval(() => {
+    const socket = io();
+    socket.on('dados_atualizados', (data) => {
         const dataAtiva = document.getElementById('customDate').value;
-        // Só atualiza se tiver uma data selecionada
-        if (dataAtiva) {
-            console.log('🔄 Auto-refresh Embarque...');
-            carregarDados(dataAtiva, true); // true = modo silencioso (não mostra tela de carregando)
-        }
-    }, 30000);
+        if (dataAtiva) carregarDados(dataAtiva, true);
+    });
 });
 
 // Define a saudação no cabeçalho com o primeiro nome em maiúsculo
@@ -78,7 +91,7 @@ async function carregarDados(dataDDMM, silent = false) {
 
     try {
         // CORREÇÃO: Passamos APENAS o 'inicio'
-        const res = await fetch(`${apiURL}?inicio=${dataDDMM}`);
+        const res = await authFetch(`${apiURL}?inicio=${dataDDMM}`);
         const json = await res.json();
 
         if (json.status === 'sucesso') {
