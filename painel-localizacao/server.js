@@ -422,21 +422,10 @@ app.post('/api/mobile/sync/upload', authMiddleware, async (req, res) => {
                 dataStore.alunos.set(cpf, aluno);
               }
               
-              // Log da movimentação
-              const logRef = db.collection('logs').doc();
-              const logData = {
-                cpf,
-                nome: op.data.nome || '',
-                tipo: updateData.movimentacao,
-                movimentacao: updateData.movimentacao,
-                usuario: updateData.ultimo_usuario,
-                operador: updateData.ultimo_usuario,
-                timestamp,
-                quarto: op.data.quarto || '',
-                numero_quarto: op.data.numero_quarto || op.data.quarto || ''
-              };
-              batch.set(logRef, logData);
-              addLog({ id: logRef.id, ...logData });
+              // ✅ CORREÇÃO: Removido log duplicado de movimentação.
+              // O mobile já envia uma operação 'log' separada para cada evento.
+              // Criar outro log aqui duplicava as escritas no Firestore e
+              // disparava os onSnapshot listeners desnecessariamente.
               
               results.push({ id: op.id, status: 'ok' });
               break;
@@ -507,8 +496,11 @@ app.post('/api/mobile/sync/upload', authMiddleware, async (req, res) => {
       await batch.commit();
     }
 
-    dataStore.lastUpdate.alunos = timestamp;
-    dataStore.lastUpdate.embarques = timestamp;
+    // ✅ CORREÇÃO: Removido `dataStore.lastUpdate.alunos/embarques = timestamp`
+    // O onSnapshot dos listeners já atualiza o lastUpdate naturalmente quando
+    // o Firestore confirma as escritas. Atualizar aqui incondicionalmente fazia
+    // com que TODA chamada de delta sync retornasse a coleção INTEIRA como "alterada",
+    // gerando centenas de milhares de leituras desnecessárias por dia.
 
     console.log(`📥 Upload batch: ${operations.length} operações processadas de [${req.user.cpf}]`);
     res.json({ success: true, results, serverTime: timestamp });
