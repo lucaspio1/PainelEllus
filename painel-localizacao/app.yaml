@@ -6,8 +6,8 @@ instance_class: F1
 
 # Escalabilidade automática
 automatic_scaling:
-  min_instances: 0
-  max_instances: 10
+  min_instances: 1
+  max_instances: 1
   target_cpu_utilization: 0.65
 
 # Variáveis de ambiente
