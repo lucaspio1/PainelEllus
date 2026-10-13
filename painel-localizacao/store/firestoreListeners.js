@@ -64,6 +64,7 @@ function setupFirestoreListeners(db, io) {
       });
 
       dataStore.lastUpdate[col] = new Date().toISOString();
+      dataStore.ready[col] = true;
       debouncedEmit(col);
 
       if (!initialLoadComplete[col]) {
@@ -96,6 +97,7 @@ function setupFirestoreListeners(db, io) {
       });
 
       dataStore.lastUpdate['logs'] = new Date().toISOString();
+      dataStore.ready.logs = true;
       debouncedEmit('logs');
 
       if (!initialLoadComplete['logs']) {

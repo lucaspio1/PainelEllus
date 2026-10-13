@@ -15,6 +15,7 @@ const { dataStore, getAll, getById, getByFilter, getChangedSince, stats, addLog,
 const { authMiddleware, requireAdmin, generateToken } = require('./middleware/auth');
 const { setupFirestoreListeners } = require('./store/firestoreListeners');
 const { processUploadOperations } = require('./store/uploadProcessor');
+const { montarDelta } = require('./store/delta');
 const { emitirTokenDispositivo, validarTokenDispositivo, revogarDispositivosDoUsuario } = require('./store/deviceTokens');
 
 // [FIREBASE] Inicialização com suporte a múltiplos ambientes
@@ -378,34 +379,26 @@ app.post('/api/mobile/auth/refresh', async (req, res) => {
 // ==========================================================
 
 // ✅ SYNC DELTA — App baixa apenas o que mudou desde a última sync
+// Ver store/delta.js (cold start, margem de segurança e sync completo).
 app.get('/api/mobile/sync', authMiddleware, (req, res) => {
   try {
-    const since = req.query.since || '1970-01-01T00:00:00.000Z';
-    const delta = {};
-    
-    ['alunos', 'quartos', 'embarques', 'eventos'].forEach(col => {
-      const changed = getChangedSince(col, since);
-      if (changed.length > 0) {
-        // Para usuarios, remover campo senha antes de enviar
-        if (col === 'usuarios') {
-          delta[col] = changed.map(u => {
-            const { senha, ...safe } = u;
-            return safe;
-          });
-        } else {
-          delta[col] = changed;
-        }
-      }
-    });
+    const resultado = montarDelta({ dataStore, since: req.query.since });
 
-    const storeStats = stats();
-    console.log(`📡 Delta sync: ${Object.values(delta).reduce((acc, arr) => acc + arr.length, 0)} docs alterados enviados para [${req.user.cpf}]`);
+    if (!resultado.pronto) {
+      // Cache ainda carregando (instância acabou de subir). O app não avança
+      // o "since" e tenta de novo no próximo ciclo.
+      res.set('Retry-After', '10');
+      return res.status(503).json({ success: false, code: 'CACHE_CARREGANDO', message: 'Servidor iniciando, tente novamente.' });
+    }
+
+    const total = Object.values(resultado.delta).reduce((acc, arr) => acc + arr.length, 0);
+    console.log(`📡 Delta sync${resultado.completo ? ' COMPLETO' : ''}: ${total} docs para [${req.user.cpf}]`);
 
     res.json({ 
       success: true, 
-      serverTime: new Date().toISOString(), 
-      delta,
-      stats: storeStats
+      serverTime: resultado.serverTime, 
+      delta: resultado.delta,
+      stats: stats()
     });
   } catch (error) {
     console.error('Erro sync delta:', error);
