@@ -18,6 +18,8 @@ async function authFetch(url, options = {}) {
 let alunosData = [];
 let colegios = new Set();
 let alunosSelecionados = [];
+let viagensLista = [];
+const esc = Ellus.esc;
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('emptyStudents').style.display = 'block';
@@ -25,6 +27,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // Listener de pesquisa em tempo real
     document.getElementById('filterNome').addEventListener('input', filtrarLista);
     document.getElementById('filterColegio').addEventListener('change', filtrarLista);
+    document.getElementById('filterQuarto').addEventListener('change', filtrarLista);
+    document.getElementById('roomInput').addEventListener('input', mostrarOcupacao);
+    document.getElementById('roomInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') salvarQuartos(); });
+
+    // Seletor de viagem: preenche as datas/colégio e busca direto
+    document.getElementById('filterViagem').addEventListener('change', (e) => {
+        const v = viagensLista.find(x => `${x.colegio}|${x.inicio}` === e.target.value);
+        if (!v) return;
+        document.getElementById('filterInicio').value = v.inicio;
+        document.getElementById('filterFim').value = v.fim || '';
+        buscarAlunos(v.colegio);
+    });
+    carregarViagens();
 
     // Carrega nome do operador
     const user = localStorage.getItem('painel_user');
@@ -36,7 +51,36 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-async function buscarAlunos() {
+async function carregarViagens() {
+    try {
+        const res = await authFetch(`/api/viagens-unicas?hoje=${Ellus.hojeISO()}`);
+        const json = await res.json();
+        if (!json.success) return;
+        // Viagens com pernoite em andamento/próximas primeiro
+        const peso = { andamento: 0, futura: 1, indefinida: 2, encerrada: 3 };
+        viagensLista = (json.data || []).sort((a, b) =>
+            (b.pernoite - a.pernoite) || (peso[a.situacao] - peso[b.situacao]) || String(a.inicio).localeCompare(String(b.inicio)));
+        const sel = document.getElementById('filterViagem');
+        sel.innerHTML = '<option value="">Escolha a viagem (ou informe as datas)</option>' + viagensLista.map(v =>
+            `<option value="${esc(`${v.colegio}|${v.inicio}`)}">${v.pernoite ? '🛏️' : '🚌'} ${esc(v.colegio)} — ${esc(Ellus.formatarData(v.inicio))} a ${esc(Ellus.formatarData(v.fim))} · ${v.com_quarto}/${v.qtd_alunos} com quarto${v.situacao === 'encerrada' ? ' (encerrada)' : ''}</option>`
+        ).join('');
+    } catch (e) { console.warn('Não foi possível listar as viagens', e); }
+}
+
+/** Mostra quem já está no quarto digitado (evita lotar ou errar o número). */
+function mostrarOcupacao() {
+    const num = document.getElementById('roomInput').value.trim();
+    const info = document.getElementById('ocupacaoQuarto');
+    if (!num) { info.textContent = ''; return; }
+    const selecionados = new Set(alunosSelecionados.map(a => String(a.cpf).replace(/\D/g, '')));
+    const ocupantes = alunosData.filter(a => String(a.numero_quarto || '').trim().toLowerCase() === num.toLowerCase()
+        && !selecionados.has(String(a.cpf).replace(/\D/g, '')));
+    info.textContent = ocupantes.length
+        ? `Quarto ${num} já tem ${ocupantes.length}: ${ocupantes.map(a => a.nome.split(' ')[0]).join(', ')}`
+        : `Quarto ${num} está vazio nesta lista.`;
+}
+
+async function buscarAlunos(colegioPreSelecionado) {
     const inicio = document.getElementById('filterInicio').value;
     const fim = document.getElementById('filterFim').value;
 
@@ -116,10 +160,11 @@ async function buscarAlunos() {
 
             // Atualiza select de colégios
             const selectColegio = document.getElementById('filterColegio');
-            selectColegio.innerHTML = '<option value="">Todos</option>';
-            Array.from(colegios).sort().forEach(col => {
-                selectColegio.innerHTML += `<option value="${col}">${col}</option>`;
-            });
+            selectColegio.innerHTML = '<option value="">Todos</option>' + Array.from(colegios).sort()
+                .map(col => `<option value="${esc(col)}">${esc(col)}</option>`).join('');
+            if (typeof colegioPreSelecionado === 'string' && colegios.has(colegioPreSelecionado)) {
+                selectColegio.value = colegioPreSelecionado;
+            }
 
             renderizarLista();
         } else {
@@ -142,17 +187,21 @@ function renderizarLista() {
     const emptyState = document.getElementById('emptyStudents');
 
     const colegioFiltro = document.getElementById('filterColegio').value;
-    const nomeFiltro = document.getElementById('filterNome').value.toLowerCase();
+    const nomeFiltro = document.getElementById('filterNome').value.toLowerCase().trim();
+    const quartoFiltro = document.getElementById('filterQuarto').value;
 
     // Aplica filtros
     let filtrados = alunosData.filter(aluno => {
         const matchColegio = !colegioFiltro || (aluno.colegio === colegioFiltro);
         const matchNome = !nomeFiltro ||
             (aluno.nome && aluno.nome.toLowerCase().includes(nomeFiltro)) ||
-            (aluno.cpf && String(aluno.cpf).includes(nomeFiltro));
+            (aluno.cpf && String(aluno.cpf).includes(nomeFiltro.replace(/\D/g, '') || nomeFiltro)) ||
+            String(aluno.numero_quarto || '').toLowerCase() === nomeFiltro;
+        const matchQuarto = !quartoFiltro ||
+            (quartoFiltro === 'sem' ? !aluno.numero_quarto : !!aluno.numero_quarto);
 
-        return matchColegio && matchNome;
-    });
+        return matchColegio && matchNome && matchQuarto;
+    }).sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
 
     if (filtrados.length === 0 && alunosData.length === 0) {
         studentsList.innerHTML = '';
@@ -215,16 +264,16 @@ function criarItemAluno(aluno) {
     contentDiv.className = 'student-content';
     contentDiv.onclick = () => toggleSelecaoAluno(aluno);
     contentDiv.innerHTML = `
-        <div class="student-name">${aluno.nome}</div>
+        <div class="student-name">${esc(aluno.nome)}</div>
         <div class="student-info">
-            CPF: ${cpfFormatted} | ${aluno.colegio || 'Sem colégio'}${aluno.turma ? ` | ${aluno.turma}` : ''}
+            CPF: ${esc(cpfFormatted)} | ${esc(aluno.colegio || 'Sem colégio')}${aluno.turma ? ` | ${esc(aluno.turma)}` : ''}
         </div>
     `;
 
     const badgeDiv = document.createElement('div');
     badgeDiv.innerHTML = `
         ${aluno.numero_quarto ?
-            `<span class="room-badge"><i class="fas fa-door-open"></i> Quarto ${aluno.numero_quarto}</span>` :
+            `<span class="room-badge"><i class="fas fa-door-open"></i> Quarto ${esc(aluno.numero_quarto)}</span>` :
             `<i class="fas fa-circle" style="color: #ef4444; font-size: 0.8rem;"></i>`
         }
     `;
@@ -303,10 +352,10 @@ function atualizarPainelAtribuicao() {
         const card = document.createElement('div');
         card.style.cssText = 'padding: 10px; margin-bottom: 8px; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb;';
         card.innerHTML = `
-            <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 4px;">${idx + 1}. ${aluno.nome}</div>
+            <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 4px;">${idx + 1}. ${esc(aluno.nome)}</div>
             <div style="font-size: 0.85rem; color: #666;">
-                CPF: ${formatarCPF(aluno.cpf)} | ${aluno.colegio || 'N/A'}
-                ${aluno.numero_quarto ? `<br><strong>Quarto Atual: ${aluno.numero_quarto}</strong>` : ''}
+                CPF: ${esc(formatarCPF(aluno.cpf))} | ${esc(aluno.colegio || 'N/A')}
+                ${aluno.numero_quarto ? `<br><strong>Quarto Atual: ${esc(aluno.numero_quarto)}</strong>` : ''}
             </div>
         `;
         selectedStudentsList.appendChild(card);
@@ -319,6 +368,8 @@ function atualizarPainelAtribuicao() {
         document.getElementById('roomInput').value = '';
         document.getElementById('roomInput').placeholder = `Digite o quarto para ${alunosSelecionados.length} alunos`;
     }
+
+    mostrarOcupacao();
 
     // Mostra/esconde botão de remover
     const todosTemQuarto = alunosSelecionados.every(a => a.numero_quarto);
@@ -404,7 +455,7 @@ async function removerQuartos() {
     const qtd = alunosSelecionados.length;
     const nomes = qtd === 1 ? alunosSelecionados[0].nome : `${qtd} alunos`;
 
-    if (!confirm(`⚠️ Remover o${qtd > 1 ? 's' : ''} quarto${qtd > 1 ? 's' : ''} de ${nomes}?`)) {
+    if (!confirm(`Tirar o quarto de ${nomes}?\n\nO aluno continua na viagem, só fica sem número de quarto.`)) {
         return;
     }
 

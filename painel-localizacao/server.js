@@ -1115,7 +1115,10 @@ app.get('/api/viagens-unicas', authMiddleware, (req, res) => {
   try {
     // Ver store/viagens.js: junta alunos, quartos e embarques e devolve
     // contagens de embarque/retorno, faciais, quartos e a situação da viagem.
-    res.json({ success: true, data: listarViagens(dataStore) });
+    // O servidor roda em UTC: depois das 21h em Brasília já seria "amanhã".
+    // O painel manda a data local do navegador.
+    const hojeISO = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.hoje || '')) ? req.query.hoje : undefined;
+    res.json({ success: true, data: listarViagens(dataStore, hojeISO ? { hojeISO } : undefined) });
   } catch (e) {
     console.error('Erro ao listar viagens únicas:', e);
     res.status(500).json({ success: false, message: e.message });
