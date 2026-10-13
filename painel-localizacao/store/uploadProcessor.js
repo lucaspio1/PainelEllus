@@ -173,6 +173,7 @@ function planEmbarque(op, ctx) {
     if (isOlder(eventAt, view[`${campo}_at`])) continue; // já existe evento mais novo
     update[campo] = valor;
     update[`${campo}_at`] = eventAt;
+    update[`${campo}_por`] = data.operador || ctx.user.nome || '';
   }
 
   if (Object.keys(update).length === 0) {

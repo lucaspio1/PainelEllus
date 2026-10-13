@@ -17,6 +17,8 @@ const { setupFirestoreListeners } = require('./store/firestoreListeners');
 const { processUploadOperations } = require('./store/uploadProcessor');
 const { montarDelta } = require('./store/delta');
 const { normalizarDataISO, mesmaData, formatarDataBR } = require('./store/datas');
+const { listarViagens, planejarEdicao, planejarExclusao, aplicarEmLotes } = require('./store/viagens');
+const { planejarImportacao } = require('./store/importacao');
 const { emitirTokenDispositivo, validarTokenDispositivo, revogarDispositivosDoUsuario } = require('./store/deviceTokens');
 
 // [FIREBASE] Inicialização com suporte a múltiplos ambientes
@@ -142,6 +144,7 @@ app.get('/embarque', (req, res) => res.sendFile(path.join(__dirname, 'public', '
 app.get('/importar', (req, res) => res.sendFile(path.join(__dirname, 'public', 'importar.html')));
 app.get('/usuarios', (req, res) => res.sendFile(path.join(__dirname, 'public', 'usuarios.html')));
 app.get('/homelist', (req, res) => res.sendFile(path.join(__dirname, 'public', 'homelist.html')));
+app.get('/viagens', (req, res) => res.sendFile(path.join(__dirname, 'public', 'gerenciar-viagens.html')));
 
 // ==========================================================
 // UTILITÁRIOS
@@ -156,6 +159,16 @@ function formatarDataPTBR(dataISO) {
     const ano = data.getUTCFullYear();
     return `${dia}/${mes}/${ano}`;
   } catch (e) { return dataISO; }
+}
+
+const ehSim = (v) => String(v || '').trim().toUpperCase() === 'SIM';
+
+/** Nome de quem está usando o painel (do JWT), para auditoria. */
+const operadorDaRequisicao = (req, informado) => informado || (req.user && req.user.nome) || 'Painel';
+
+/** Avisa painéis abertos e registra no console. */
+function notificarAlteracao(tipo) {
+  io.emit('dados_atualizados', { tipo, timestamp: new Date().toISOString() });
 }
 
 /** Data de viagem para gravar: ISO "AAAA-MM-DD" (antes era "DD/MM", sem ano). */
@@ -248,6 +261,9 @@ app.post('/api/login', async (req, res) => {
     if (!userData) {
       return res.status(401).json({ success: false, message: 'Usuário não encontrado.' });
     }
+    if (userData.ativo === false) {
+      return res.status(401).json({ success: false, message: 'Usuário desativado.' });
+    }
 
     const senhaCorreta = await verificarSenha(senha, userData.senha);
     if (!senhaCorreta) {
@@ -307,6 +323,9 @@ app.post('/api/mobile/auth', async (req, res) => {
 
     if (!userData) {
       return res.status(401).json({ success: false, message: 'Usuário não encontrado.' });
+    }
+    if (userData.ativo === false) {
+      return res.status(401).json({ success: false, message: 'Usuário desativado.' });
     }
 
     const senhaCorreta = await verificarSenha(senha, userData.senha);
@@ -491,85 +510,29 @@ app.post('/api/importar', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Dados inválidos.' });
     }
 
-    const promessas = alunos.map(async (aluno) => {
-      const cpfLimpo = String(aluno.cpf_limpo || aluno.cpf).replace(/\D/g, '');
-      if (!cpfLimpo) return;
+    // Ver store/importacao.js: reimportar a mesma viagem preserva embarque,
+    // retorno, movimentação e quarto; linhas sem CPF/repetidas são informadas.
+    const plano = planejarImportacao(alunos, dataStore);
 
-      const agora = new Date();
-      const timestamp = agora.toISOString();
+    await aplicarEmLotes(db, plano.escritas, (batch, op) =>
+      batch.set(db.collection(op.col).doc(op.id), op.data, { merge: true }));
 
-      // Verifica se o campo 'facial' na planilha é true ou o texto "sim"
-      const isFacial = aluno.facial === true || 
-                       (aluno.facial && String(aluno.facial).toLowerCase() === 'sim');
-
-      // Salva em 'quartos'
-      const quartoRef = db.collection('quartos').doc(cpfLimpo);
-      const dadosQuarto = {
-        colegio: aluno.colegio || '',
-        cpf: cpfLimpo,
-        nome_hospede: aluno.nome,
-        numero_quarto: aluno.quarto || aluno.numero_quarto || '',
-        inicio_viagem: dataViagem(aluno.inicio_viagem),
-        fim_viagem: dataViagem(aluno.fim_viagem),
-        facial: isFacial,
-        created_at: agora,
-        updated_at: timestamp
-      };
-
-      // Salva em 'alunos'
-      const alunoRef = db.collection('alunos').doc(cpfLimpo);
-      const dadosAluno = {
-        colegio: aluno.colegio || '',
-        cpf: cpfLimpo,
-        nome: aluno.nome,
-        turma: aluno.turma || '',
-        inicio_viagem: dataViagem(aluno.inicio_viagem),
-        fim_viagem: dataViagem(aluno.fim_viagem),
-        movimentacao: 'QUARTO',
-        facial: isFacial,
-        updated_at: timestamp
-      };
-
-      const embarqueRef = db.collection('embarques').doc(cpfLimpo);
-      const cleanString = (str) => str ? String(str).trim().replace(/\s+/g, ' ') : '';
-
-      const dadosEmbarque = {
-        Facial: "PENDENTE",
-        facial_cadastrada: false,
-        colegio: cleanString(aluno.colegio),
-        cpf: cpfLimpo,
-        nome: cleanString(aluno.nome),
-        turma: cleanString(aluno.turma),
-        idPasseio: cleanString(aluno.id_passeio),
-        onibus: cleanString(aluno.onibus),
-        inicioViagem: dataViagem(aluno.inicio_viagem),
-        fimViagem: dataViagem(aluno.fim_viagem),
-        embarque: "",
-        retorno: "",
-        created_at: agora,
-        updated_at: timestamp
-      };
-
-      // Atualiza cache RAM imediatamente
-      dataStore.quartos.set(cpfLimpo, { id: cpfLimpo, ...dadosQuarto });
-      dataStore.alunos.set(cpfLimpo, { id: cpfLimpo, ...dadosAluno });
-      dataStore.embarques.set(cpfLimpo, { id: cpfLimpo, ...dadosEmbarque });
-
-      return Promise.all([
-        quartoRef.set(dadosQuarto, { merge: true }),
-        alunoRef.set(dadosAluno, { merge: true }),
-        embarqueRef.set(dadosEmbarque, { merge: true })
-      ]);
-    });
-
-    await Promise.all(promessas);
-    
+    // Cache RAM (o listener do Firestore confirma em seguida)
+    for (const op of plano.escritas) {
+      const atual = dataStore[op.col].get(op.id) || { id: op.id };
+      dataStore[op.col].set(op.id, { ...atual, ...op.data });
+    }
     const ts = new Date().toISOString();
     dataStore.lastUpdate.quartos = ts;
     dataStore.lastUpdate.alunos = ts;
     dataStore.lastUpdate.embarques = ts;
+    notificarAlteracao('importacao');
 
-    res.json({ success: true, message: `${alunos.length} registros processados.` });
+    const gravados = plano.novos + plano.atualizados;
+    let message = `${gravados} aluno(s) importado(s): ${plano.novos} novo(s), ${plano.atualizados} já estavam na viagem (embarque e quarto preservados).`;
+    if (plano.ignorados.length > 0) message += ` ${plano.ignorados.length} linha(s) ignorada(s).`;
+
+    res.json({ success: true, message, novos: plano.novos, atualizados: plano.atualizados, ignorados: plano.ignorados });
 
   } catch (error) {
     console.error('Erro na importação:', error);
@@ -580,17 +543,20 @@ app.post('/api/importar', authMiddleware, async (req, res) => {
 // ✅ EMBARQUE LISTA (Lê do cache RAM)
 app.get('/api/embarque-lista', authMiddleware, async (req, res) => {
   try {
-    const { inicio, fim } = req.query;
+    const { inicio, fim, colegio } = req.query;
     
     let embarques = getAll('embarques');
 
-    // Filtros
     // Aceita "AAAA-MM-DD" e o formato antigo "DD/MM" dos dois lados
     if (inicio) {
       embarques = embarques.filter(e => mesmaData(e.inicioViagem, inicio));
     }
     if (fim) {
       embarques = embarques.filter(e => mesmaData(e.fimViagem, fim));
+    }
+    if (colegio) {
+      const c = String(colegio).trim().toUpperCase();
+      embarques = embarques.filter(e => String(e.colegio || '').trim().toUpperCase() === c);
     }
 
     const listaEmbarque = embarques.map(dados => ({
@@ -605,9 +571,14 @@ app.get('/api/embarque-lista', authMiddleware, async (req, res) => {
       colegio: dados.colegio || '',
       embarque: dados.embarque || '',
       retorno: dados.retorno || '',
-      status_embarque: dados.embarque ? 'EMBARCADO' : 'PENDENTE',
+      embarque_at: dados.embarque_at || null,
+      retorno_at: dados.retorno_at || null,
+      embarque_por: dados.embarque_por || '',
+      retorno_por: dados.retorno_por || '',
+      status_embarque: ehSim(dados.embarque) ? 'EMBARCADO' : 'PENDENTE',
       facial_cadastrada: dados.facial_cadastrada || false,
       status_facial: dados.Facial || 'PENDENTE',
+      pernoite: dados.facial === true,
       inicio_viagem: dados.inicioViagem,
       fim_viagem: dados.fimViagem
     }));
@@ -617,6 +588,35 @@ app.get('/api/embarque-lista', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Erro API Embarque:', error.message);
     res.status(500).json({ status: 'erro', mensagem: 'Erro ao buscar dados de embarque.' });
+  }
+});
+
+// ✅ CORRIGIR EMBARQUE/RETORNO PELO PAINEL (ex.: monitor esqueceu de marcar)
+// Usa a mesma regra de ordem do app: grava com o horário atual.
+app.post('/api/embarque/marcar', authMiddleware, async (req, res) => {
+  try {
+    const { cpf, campo, valor } = req.body || {};
+    const cpfLimpo = String(cpf || '').replace(/\D/g, '');
+    if (!cpfLimpo || !['embarque', 'retorno'].includes(campo) || !['SIM', 'NÃO', ''].includes(valor)) {
+      return res.status(400).json({ success: false, message: 'Informe CPF, campo (embarque/retorno) e valor (SIM/NÃO).' });
+    }
+    if (!dataStore.embarques.has(cpfLimpo)) {
+      return res.status(404).json({ success: false, message: 'Aluno não encontrado na lista de embarque.' });
+    }
+    const agora = new Date().toISOString();
+    const dados = {
+      [campo]: valor,
+      [`${campo}_at`]: agora,
+      [`${campo}_por`]: `${operadorDaRequisicao(req)} (painel)`,
+      updated_at: agora
+    };
+    await db.collection('embarques').doc(cpfLimpo).set(dados, { merge: true });
+    Object.assign(dataStore.embarques.get(cpfLimpo), dados);
+    notificarAlteracao('embarques');
+    res.json({ success: true, data: dados });
+  } catch (error) {
+    console.error('Erro ao marcar embarque:', error);
+    res.status(500).json({ success: false, message: 'Erro ao salvar.' });
   }
 });
 
@@ -691,13 +691,12 @@ app.get('/api/pessoas', authMiddleware, (req, res) => {
     const alunosComFacial = getByFilter('alunos', a => a.facial === true);
 
     // Cria mapa de movimentações
-    const movimentacoesPorCpf = new Map();
-    alunosComFacial.forEach(a => {
-      movimentacoesPorCpf.set(a.cpf, a.movimentacao || 'QUARTO');
-    });
+    const alunosPorCpf = new Map();
+    alunosComFacial.forEach(a => alunosPorCpf.set(a.cpf, a));
 
     const pessoas = quartosComFacial.map(quarto => {
-      const movimentacao = movimentacoesPorCpf.get(quarto.cpf) || 'QUARTO';
+      const aluno = alunosPorCpf.get(quarto.cpf) || {};
+      const movimentacao = aluno.movimentacao || 'QUARTO';
       return {
         id: quarto.id,
         cpf: quarto.cpf,
@@ -710,6 +709,11 @@ app.get('/api/pessoas', authMiddleware, (req, res) => {
         inicio_viagem: quarto.inicio_viagem,
         fim_viagem: quarto.fim_viagem,
         movimentacao: movimentacao,
+        // Quando mudou de lugar (app novo grava o horário real da leitura)
+        movimentacao_at: aluno.movimentacao_at || null,
+        ultimo_usuario: aluno.ultimo_usuario || '',
+        facial_cadastrada: aluno.facial_cadastrada === true,
+        turma_aluno: aluno.turma || '',
         created_at: quarto.created_at,
         updated_at: quarto.updated_at
       };
@@ -759,7 +763,7 @@ app.get('/api/quartos', authMiddleware, (req, res) => {
 });
 
 // ✅ LOGS (Lê do cache RAM, com filtro por CPF)
-app.get('/api/logs', authMiddleware, (req, res) => {
+app.get('/api/logs', authMiddleware, async (req, res) => {
     try {
       const { cpf } = req.query;
       let logsResult;
@@ -773,6 +777,16 @@ app.get('/api/logs', authMiddleware, (req, res) => {
         logsResult = getByFilter('logs', log => 
           termosBusca.some(t => String(log.cpf) === t)
         );
+
+        // O cache guarda só os 1000 logs mais recentes do sistema: busca o
+        // histórico do aluno direto no Firestore e junta (sem duplicar).
+        try {
+          const snap = await db.collection('logs').where('cpf', '==', cpfLimpo).limit(300).get();
+          const ids = new Set(logsResult.map(l => l.id));
+          snap.forEach(doc => { if (!ids.has(doc.id)) logsResult.push({ id: doc.id, ...doc.data() }); });
+        } catch (e) {
+          console.warn('Histórico do Firestore indisponível, usando cache:', e.message);
+        }
       } else {
         logsResult = getAll('logs').slice(0, 100);
       }
@@ -967,33 +981,26 @@ app.post('/api/atribuir-quarto', authMiddleware, async (req, res) => {
 
     const cpfLimpo = String(cpf).replace(/\D/g, '');
 
-    // Remove documentos existentes com este CPF
-    const querySnapshot = await db.collection('quartos').where('cpf', '==', cpfLimpo).get();
-    const deletePromises = [];
-    querySnapshot.forEach(doc => {
-      deletePromises.push(doc.ref.delete());
-      dataStore.quartos.delete(doc.id);
-    });
-    if (deletePromises.length > 0) await Promise.all(deletePromises);
-
-    // Cria novo documento
+    // Atualiza o documento do aluno (ID = CPF) sem apagar os demais campos
     const quartoRef = db.collection('quartos').doc(cpfLimpo);
+    const existente = dataStore.quartos.get(cpfLimpo);
     const dadosQuarto = {
       cpf: cpfLimpo,
       numero_quarto: numero_quarto.trim(),
-      nome_hospede: nome_hospede || '',
-      colegio: colegio || '',
-      inicio_viagem: inicio_viagem || '',
-      fim_viagem: fim_viagem || '',
-      facial: true,
-      created_at: new Date(),
+      nome_hospede: nome_hospede || (existente && existente.nome_hospede) || '',
+      colegio: colegio || (existente && existente.colegio) || '',
+      inicio_viagem: dataViagem(inicio_viagem) || (existente && existente.inicio_viagem) || '',
+      fim_viagem: dataViagem(fim_viagem) || (existente && existente.fim_viagem) || '',
+      // Ter quarto = viagem com pernoite; mantém o tipo se já existia
+      facial: existente && typeof existente.facial === 'boolean' ? existente.facial : true,
       updated_at: new Date().toISOString()
     };
+    if (!existente) dadosQuarto.created_at = new Date().toISOString();
 
-    await quartoRef.set(dadosQuarto);
+    await quartoRef.set(dadosQuarto, { merge: true });
     
     // Atualiza cache RAM
-    dataStore.quartos.set(cpfLimpo, { id: cpfLimpo, ...dadosQuarto });
+    dataStore.quartos.set(cpfLimpo, { id: cpfLimpo, ...(existente || {}), ...dadosQuarto });
     dataStore.lastUpdate.quartos = new Date().toISOString();
 
     res.json({ success: true, message: 'Quarto atribuído com sucesso!' });
@@ -1020,22 +1027,24 @@ app.post('/api/atribuir-quartos-batch', authMiddleware, async (req, res) => {
       if (!cpfLimpo || !aluno.numero_quarto) continue;
 
       const quartoRef = db.collection('quartos').doc(cpfLimpo);
+      const existente = dataStore.quartos.get(cpfLimpo);
       const dadosQuarto = {
         cpf: cpfLimpo,
         numero_quarto: String(aluno.numero_quarto).trim(),
-        nome_hospede: aluno.nome_hospede || aluno.nome || '',
-        colegio: aluno.colegio || '',
-        inicio_viagem: aluno.inicio_viagem || '',
-        fim_viagem: aluno.fim_viagem || '',
-        facial: true,
-        created_at: new Date(),
+        nome_hospede: aluno.nome_hospede || aluno.nome || (existente && existente.nome_hospede) || '',
+        colegio: aluno.colegio || (existente && existente.colegio) || '',
+        inicio_viagem: dataViagem(aluno.inicio_viagem) || (existente && existente.inicio_viagem) || '',
+        fim_viagem: dataViagem(aluno.fim_viagem) || (existente && existente.fim_viagem) || '',
+        // Ter quarto = viagem com pernoite; mantém o tipo se já existia
+        facial: existente && typeof existente.facial === 'boolean' ? existente.facial : true,
         updated_at: timestamp
       };
+      if (!existente) dadosQuarto.created_at = timestamp;
 
       batch.set(quartoRef, dadosQuarto, { merge: true });
       
       // Atualiza cache RAM
-      dataStore.quartos.set(cpfLimpo, { id: cpfLimpo, ...dadosQuarto });
+      dataStore.quartos.set(cpfLimpo, { id: cpfLimpo, ...(existente || {}), ...dadosQuarto });
     }
 
     await batch.commit();
@@ -1054,17 +1063,16 @@ app.delete('/api/remover-quarto/:cpf', authMiddleware, async (req, res) => {
     const { cpf } = req.params;
     const cpfLimpo = String(cpf).replace(/\D/g, '');
 
-    const querySnapshot = await db.collection('quartos').where('cpf', '==', cpfLimpo).get();
-    const deletePromises = [];
-
-    querySnapshot.forEach(doc => {
-      deletePromises.push(doc.ref.delete());
-      dataStore.quartos.delete(doc.id);
-    });
-
-    if (deletePromises.length > 0) await Promise.all(deletePromises);
+    // Só tira o número do quarto. Antes o documento era APAGADO e o aluno
+    // sumia do controle de quartos (que é montado a partir desta coleção).
+    const agora = new Date().toISOString();
+    const existente = dataStore.quartos.get(cpfLimpo);
+    if (existente) {
+      await db.collection('quartos').doc(cpfLimpo).set({ numero_quarto: '', updated_at: agora }, { merge: true });
+      Object.assign(existente, { numero_quarto: '', updated_at: agora });
+    }
     
-    dataStore.lastUpdate.quartos = new Date().toISOString();
+    dataStore.lastUpdate.quartos = agora;
 
     res.json({ success: true, message: 'Quarto removido com sucesso!' });
   } catch (error) {
@@ -1082,19 +1090,15 @@ app.post('/api/remover-quartos-batch', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Array de CPFs é obrigatório.' });
     }
 
-    const batch = db.batch();
-    let removidos = 0;
-
-    for (const cpf of cpfs) {
-      const cpfLimpo = String(cpf).replace(/\D/g, '');
-      const quartoRef = db.collection('quartos').doc(cpfLimpo);
-      batch.delete(quartoRef);
-      dataStore.quartos.delete(cpfLimpo);
-      removidos++;
-    }
-
-    await batch.commit();
-    dataStore.lastUpdate.quartos = new Date().toISOString();
+    // Só tira o número do quarto (antes apagava o documento e o aluno sumia
+    // do controle de quartos)
+    const agora = new Date().toISOString();
+    const alvos = [...new Set(cpfs.map(c => String(c).replace(/\D/g, '')))].filter(c => dataStore.quartos.has(c));
+    await aplicarEmLotes(db, alvos, (batch, cpfLimpo) =>
+      batch.set(db.collection('quartos').doc(cpfLimpo), { numero_quarto: '', updated_at: agora }, { merge: true }));
+    alvos.forEach(c => Object.assign(dataStore.quartos.get(c), { numero_quarto: '', updated_at: agora }));
+    const removidos = alvos.length;
+    dataStore.lastUpdate.quartos = agora;
 
     res.json({ success: true, message: `${removidos} quartos removidos com sucesso!` });
   } catch (error) {
@@ -1109,64 +1113,70 @@ app.post('/api/remover-quartos-batch', authMiddleware, async (req, res) => {
 
 app.get('/api/viagens-unicas', authMiddleware, (req, res) => {
   try {
-    const alunos = getAll('alunos');
-    const viagensMap = new Map();
-
-    alunos.forEach(d => {
-      const colegio = d.colegio || 'Sem Colégio';
-      const inicio = d.inicio_viagem || '0000-00-00';
-      const fim = d.fim_viagem || '0000-00-00';
-      const chave = `${colegio}_${inicio}`;
-
-      if (viagensMap.has(chave)) {
-        viagensMap.get(chave).qtd_alunos += 1;
-      } else {
-        viagensMap.set(chave, {
-          colegio: colegio,
-          inicio: inicio,
-          fim: fim,
-          qtd_alunos: 1
-        });
-      }
-    });
-
-    res.json({ success: true, data: Array.from(viagensMap.values()) });
+    // Ver store/viagens.js: junta alunos, quartos e embarques e devolve
+    // contagens de embarque/retorno, faciais, quartos e a situação da viagem.
+    res.json({ success: true, data: listarViagens(dataStore) });
   } catch (e) {
     console.error('Erro ao listar viagens únicas:', e);
     res.status(500).json({ success: false, message: e.message });
   }
 });
 
-app.delete('/api/viagens/excluir', authMiddleware, async (req, res) => {
+// ✅ EDITAR VIAGEM (colégio, datas, ID do passeio, pernoite) em todas as coleções
+app.put('/api/viagens/editar', authMiddleware, requireAdmin, async (req, res) => {
   try {
-    const { colegio, inicio_viagem, operador } = req.body;
-    
-    // Busca alunos dessa viagem
-    const alunosSnapshot = await db.collection('alunos')
-      .where('colegio', '==', colegio)
-      .where('inicio_viagem', '==', inicio_viagem)
-      .get();
-      
-    // Busca quartos dessa viagem
-    const quartosSnapshot = await db.collection('quartos')
-      .where('colegio', '==', colegio)
-      .where('inicio_viagem', '==', inicio_viagem)
-      .get();
+    const { colegio, inicio_viagem, novo, operador } = req.body || {};
+    if (!colegio || !inicio_viagem || !novo || typeof novo !== 'object') {
+      return res.status(400).json({ success: false, message: 'Informe a viagem (colégio e início) e o que alterar.' });
+    }
 
-    const batch = db.batch();
-    let deletados = 0;
+    const plano = planejarEdicao(dataStore, { colegio, inicio: inicio_viagem }, novo);
+    if (plano.erro) return res.status(400).json({ success: false, message: plano.erro });
 
-    alunosSnapshot.forEach(doc => {
-      batch.delete(doc.ref);
-      dataStore.alunos.delete(doc.id);
-      deletados++;
+    await aplicarEmLotes(db, plano.escritas, (batch, op) =>
+      batch.set(db.collection(op.col).doc(op.id), op.data, { merge: true }));
+    plano.escritas.forEach(op => {
+      const doc = dataStore[op.col].get(op.id);
+      if (doc) Object.assign(doc, op.data);
     });
 
-    quartosSnapshot.forEach(doc => {
-      batch.delete(doc.ref);
-      dataStore.quartos.delete(doc.id);
-      deletados++;
-    });
+    const timestamp = new Date().toISOString();
+    const logRef = db.collection('logs').doc();
+    const logData = {
+      tipo: 'EDICAO_VIAGEM',
+      colegio,
+      inicio_viagem,
+      alteracoes: novo,
+      documentos_alterados: plano.escritas.length,
+      operador: operadorDaRequisicao(req, operador),
+      timestamp
+    };
+    await logRef.set(logData);
+    addLog({ id: logRef.id, ...logData });
+
+    ['alunos', 'quartos', 'embarques'].forEach(c => { dataStore.lastUpdate[c] = timestamp; });
+    notificarAlteracao('viagens');
+    console.log(`✏️ Viagem editada: ${colegio} ${inicio_viagem} (${plano.escritas.length} docs) por ${logData.operador}`);
+
+    res.json({ success: true, message: `Viagem atualizada (${plano.escritas.length} registros).` });
+  } catch (e) {
+    console.error('Erro ao editar viagem:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.delete('/api/viagens/excluir', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const { colegio, inicio_viagem, operador } = req.body || {};
+    if (!colegio || !inicio_viagem) {
+      return res.status(400).json({ success: false, message: 'Informe colégio e data de início.' });
+    }
+
+    // Alunos, quartos E embarques (antes os embarques ficavam para trás), em
+    // lotes de até 450 (antes viagens grandes estouravam o limite de 500)
+    const plano = planejarExclusao(dataStore, { colegio, inicio: inicio_viagem });
+    await aplicarEmLotes(db, plano.exclusoes, (batch, op) => batch.delete(db.collection(op.col).doc(op.id)));
+    plano.exclusoes.forEach(op => dataStore[op.col].delete(op.id));
 
     // Registra Log de Auditoria
     const timestamp = new Date().toISOString();
@@ -1175,26 +1185,20 @@ app.delete('/api/viagens/excluir', authMiddleware, async (req, res) => {
       tipo: 'EXCLUSAO_VIAGEM',
       colegio: colegio,
       inicio_viagem: inicio_viagem,
-      documentos_removidos: deletados,
-      operador: operador || req.user.nome || 'Sistema',
+      documentos_removidos: plano.exclusoes.length,
+      por_colecao: plano.porColecao,
+      operador: operadorDaRequisicao(req, operador),
       timestamp: timestamp
     };
-    batch.set(logRef, logData);
+    await logRef.set(logData);
     addLog({ id: logRef.id, ...logData });
 
-    if (deletados > 0) {
-      await batch.commit();
-    }
+    console.log(`🗑️ Viagem excluída: ${colegio} (${plano.exclusoes.length} docs) por ${logData.operador}`);
 
-    console.log(`🗑️ Viagem excluída: ${colegio} (${deletados} docs) por ${operador || req.user.nome}`);
+    ['alunos', 'quartos', 'embarques'].forEach(c => { dataStore.lastUpdate[c] = timestamp; });
+    notificarAlteracao('exclusao_lote');
 
-    dataStore.lastUpdate.alunos = timestamp;
-    dataStore.lastUpdate.quartos = timestamp;
-
-    // Avisa os painéis via Socket para atualizarem
-    io.emit('dados_atualizados', { tipo: 'exclusao_lote' });
-
-    res.json({ success: true });
+    res.json({ success: true, removidos: plano.porColecao });
   } catch (e) {
     console.error('Erro ao excluir viagem:', e);
     res.status(500).json({ success: false, message: e.message });
