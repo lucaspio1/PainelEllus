@@ -8,8 +8,10 @@
  *   cada operação é gravada individualmente.
  * - Movimentação/embarque para aluno que não existe mais (ex.: viagem excluída)
  *   volta 'skipped' em vez de travar a fila do celular para sempre.
- * - Embarque/retorno respeitam a ordem dos eventos: um evento mais antigo
- *   (celular que ficou offline) não sobrescreve um mais novo.
+ * - Embarque/retorno e movimentação respeitam a ordem dos eventos: um evento
+ *   mais antigo (celular que ficou offline) não sobrescreve um mais novo.
+ * - Logs têm ID determinístico (cpf + horário + tipo): reenviar o mesmo log
+ *   (resposta perdida numa conexão ruim) não cria duplicata.
  */
 
 const CHUNK_SIZE = 200; // cada operação gera no máximo 2 escritas (limite do batch: 500)
@@ -31,10 +33,23 @@ function isOlder(incoming, current) {
   return a < b;
 }
 
+/**
+ * ID estável do log: o mesmo evento sempre gera o mesmo documento.
+ * Retorna null se faltar algum dado (aí usa ID aleatório, como antes).
+ */
+function idDeterministicoLog(data) {
+  const cpf = cpfDigits(data.cpf);
+  const quando = toMillis(data.event_at || data.timestamp);
+  const tipo = String(data.tipo || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
+  if (!cpf || Number.isNaN(quando) || !tipo) return null;
+  return `${cpf}_${quando}_${tipo}`;
+}
+
 function planLog(op, ctx) {
   const { db, timestamp, user, addLog } = ctx;
   const data = op.data || {};
-  const logRef = db.collection('logs').doc();
+  const idEstavel = idDeterministicoLog(data);
+  const logRef = idEstavel ? db.collection('logs').doc(idEstavel) : db.collection('logs').doc();
   const logData = {
     ...data,
     timestamp: data.timestamp || timestamp,
@@ -54,16 +69,29 @@ function planMovimentacao(op, ctx) {
   const cpf = cpfDigits(data.cpf);
   if (!cpf) return { status: 'error', message: 'CPF ausente' };
 
-  const snap = snaps.get(`alunos/${cpf}`);
+  const key = `alunos/${cpf}`;
+  const snap = snaps.get(key);
   if (!snap || !snap.exists) {
     return { status: 'skipped', message: 'Aluno não existe (viagem excluída?)' };
   }
 
+  if (!ctx.views.has(key)) ctx.views.set(key, { ...snap.data() });
+  const view = ctx.views.get(key);
+
+  // Horário real da leitura facial no celular (app novo). Sem ele (app
+  // antigo), vale o horário de chegada, como antes.
+  const eventAt = data.event_at || timestamp;
+  if (isOlder(eventAt, view.movimentacao_at)) {
+    return { status: 'skipped', message: 'Movimentação mais antiga que a registrada' };
+  }
+
   const updateData = {
     movimentacao: data.movimentacao || data.novaLocalizacao,
+    movimentacao_at: eventAt,
     updated_at: timestamp,
     ultimo_usuario: data.operador || user.nome
   };
+  Object.assign(view, updateData);
   return {
     status: 'ok',
     writes: [{ ref: db.collection('alunos').doc(cpf), data: updateData, options: { merge: true } }],
@@ -145,6 +173,7 @@ function planEmbarque(op, ctx) {
     if (isOlder(eventAt, view[`${campo}_at`])) continue; // já existe evento mais novo
     update[campo] = valor;
     update[`${campo}_at`] = eventAt;
+    update[`${campo}_por`] = data.operador || ctx.user.nome || '';
   }
 
   if (Object.keys(update).length === 0) {
@@ -250,4 +279,4 @@ async function processUploadOperations({ db, dataStore, addLog, operations, user
   return { results, timestamp };
 }
 
-module.exports = { processUploadOperations, cpfDigits, isOlder };
+module.exports = { processUploadOperations, cpfDigits, isOlder, idDeterministicoLog };

@@ -4,61 +4,76 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Controle de Embarque - Ellus</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=5">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    .student-row .acoes-linha { display: flex; gap: 6px; }
+    .tag small { font-weight: 500; opacity: 0.85; }
+    .bus-progress { display: flex; gap: 14px; align-items: center; }
+    .falta-lista { font-size: 0.8rem; color: #b91c1c; margin-top: 4px; }
+    @media (max-width: 700px) {
+      .student-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+    }
+  </style>
 </head>
 <body>
-
   <div class="app-container">
-    
-    <!-- Header -->
-<header class="top-bar">
-    <div class="logo-area" style="cursor:pointer; font-size: 1.1rem; color: var(--brand-dark-green);" onclick="window.location.href='/home'">
-      <i class="fas fa-arrow-left"></i> Voltar
-    </div>
-    
-    <div class="controls-area" style="justify-content: center; flex: 1; gap: 15px;">
-      <h2 style="margin: 0; font-size: 1.2rem;"><i class="fas fa-bus"></i> Controle de Embarque</h2>
-      <span id="totalPassageiros" class="badge badge-quarto" style="align-self: center;">0 Alunos</span>
-    </div>
+    <header class="top-bar">
+      <div class="logo-area" onclick="window.location.href='/home'"><i class="fas fa-arrow-left"></i> Voltar</div>
+      <div style="flex:1; text-align:center; font-weight:700; color:var(--brand-dark-green);"><i class="fas fa-bus"></i> Controle de Embarque</div>
+      <div class="controls-area">
+        <small id="ultimaAtualizacao" class="muted"></small>
+        <button class="btn btn-outline btn-sm" id="btnAtualizar" title="Atualizar"><i class="fas fa-sync-alt"></i> Atualizar</button>
+        <button class="btn btn-outline btn-sm" id="btnExportar"><i class="fas fa-file-csv"></i> Exportar</button>
+      </div>
+      <div class="operator-area"><span id="nomeOperador" class="operator-name">Olá</span></div>
+    </header>
 
-    <div class="operator-area">
-      <span id="nomeOperador" class="operator-name">👋 Olá, Usuário</span>
-    </div>
-  </header>
-
-    <!-- Filtros -->
-    <div class="filters-bar">
-      
-      <div class="date-selector">
-        <label>Data da Viagem:</label>
+    <section class="filters-bar">
+      <div class="filter-field">
+        <label>Quais viagens</label>
         <div class="btn-group-date">
-            <button class="btn btn-date selected" id="btnHoje" onclick="selecionarData('hoje')">Hoje</button>
-            <button class="btn btn-date" id="btnAmanha" onclick="selecionarData('amanha')">Amanhã</button>
-            <input type="text" id="customDate" class="input-date-manual" placeholder="DD/MM">
-            <button class="btn btn-primary btn-sm" onclick="buscarPorDataManual()"><i class="fas fa-search"></i></button>
+          <button class="btn btn-date btn-sm" data-periodo="hoje">Acontecendo hoje</button>
+          <button class="btn btn-date btn-sm" data-periodo="amanha">Saem amanhã</button>
+          <button class="btn btn-date btn-sm" data-periodo="escolher">Escolher viagem</button>
         </div>
       </div>
-
-      <div class="search-box">
-        <input type="text" id="searchEmbarque" class="form-input" placeholder="Buscar aluno, CPF ou ônibus...">
+      <div class="filter-field grow hidden" id="campoViagem">
+        <label for="selViagem">Viagem</label>
+        <select id="selViagem" class="form-select"></select>
       </div>
+      <div class="filter-field grow">
+        <label for="searchEmbarque">Buscar</label>
+        <input type="text" id="searchEmbarque" class="form-input" placeholder="Aluno, CPF, turma ou ônibus">
+      </div>
+      <div class="filter-field">
+        <label>Mostrar</label>
+        <div class="chips" id="chipsStatus">
+          <button class="chip active" data-valor="">Todos <span class="count" id="cntTodos">0</span></button>
+          <button class="chip" data-valor="falta_embarcar">Faltam embarcar <span class="count" id="cntFaltaEmb">0</span></button>
+          <button class="chip" data-valor="embarcados">Embarcados <span class="count" id="cntEmb">0</span></button>
+          <button class="chip" data-valor="falta_retornar">Faltam retornar <span class="count" id="cntFaltaRet">0</span></button>
+          <button class="chip" data-valor="retornados">Retornaram <span class="count" id="cntRet">0</span></button>
+        </div>
+      </div>
+    </section>
 
-    </div>
+    <section class="kpis">
+      <div class="kpi"><div class="kpi-val" id="kpiTotal">0</div><div class="kpi-label">Alunos</div><div class="kpi-sub" id="kpiViagens"></div></div>
+      <div class="kpi"><div class="kpi-val" id="kpiEmb">0</div><div class="kpi-label">Embarcaram</div><div class="bar"><span id="barEmb" style="width:0"></span></div></div>
+      <div class="kpi" style="border-left-color:#ef4444"><div class="kpi-val" id="kpiFaltaEmb">0</div><div class="kpi-label">Faltam embarcar</div></div>
+      <div class="kpi" style="border-left-color:#2563eb"><div class="kpi-val" id="kpiRet">0</div><div class="kpi-label">Retornaram</div><div class="bar blue"><span id="barRet" style="width:0"></span></div></div>
+    </section>
 
-    <!-- Lista (Acordeão) -->
     <main class="main-content scroll-y">
-      <div id="loadingEmbarque" class="loading-spinner hidden">
-        <i class="fas fa-spinner fa-spin"></i> Carregando listas...
-      </div>
-      
-      <div id="listaEmbarqueContainer" class="accordion-container">
-        <!-- As escolas serão renderizadas aqui -->
-      </div>
+      <div id="loadingEmbarque" class="empty-state hidden"><i class="fas fa-spinner fa-spin"></i> Carregando listas...</div>
+      <div id="listaEmbarqueContainer" class="accordion-container"></div>
     </main>
-
   </div>
 
-  <script src="embarque.js"></script>
+  <div id="toastContainer" class="toast-container"></div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="common.js?v=5"></script>
+  <script src="embarque.js?v=5"></script>
 </body>
 </html>

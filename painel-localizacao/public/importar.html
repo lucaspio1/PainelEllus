@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Importar e Gerar QR - Painel Ellus</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=5">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
@@ -154,6 +154,7 @@
         
         <div id="previewArea" style="margin-top:20px; margin-bottom: 20px;">
              <h3>Pré-visualização (<span id="totalLinhas">0</span> alunos)</h3>
+             <div id="avisosPreview" class="alerta hidden" style="margin-top:8px;"></div>
              <p style="font-size:0.8rem; color:#666;">Verifique a lista abaixo e exclua linhas indesejadas antes de confirmar.</p>
              <div style="max-height: 400px; overflow: auto; border: 1px solid #eee; margin-top: 10px;">
                 <table class="preview-table">
@@ -194,13 +195,13 @@
             </div>
             
             <div class="print-controls">
-                <div class="toggle-label">
-                    <span>Facial?</span>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="checkFacial">
-                        <span class="slider"></span>
-                    </label>
-                    <span id="labelFacial">NÃO</span>
+                <div class="form-group" style="min-width:220px">
+                    <label for="modoFacialQR">Facial no QR Code</label>
+                    <select id="modoFacialQR" class="form-control">
+                        <option value="auto">Automático (pelo tipo da viagem)</option>
+                        <option value="sim">Forçar SIM (pernoite)</option>
+                        <option value="nao">Forçar NÃO (sem pernoite)</option>
+                    </select>
                 </div>
 
                 <button class="btn btn-primary" onclick="gerarPDFSelecionados()">
@@ -217,11 +218,12 @@
                     <th>Passeio</th>
                     <th>Ônibus</th>
                     <th>Data</th>
+                    <th>Tipo</th>
                     <th>Qtd. Alunos</th>
                 </tr>
             </thead>
             <tbody id="listaGruposBody">
-                <tr><td colspan="6" style="text-align:center">Selecione uma data e clique em buscar.</td></tr>
+                <tr><td colspan="7" style="text-align:center">Selecione uma data e clique em buscar.</td></tr>
             </tbody>
         </table>
     </div>
@@ -267,6 +269,7 @@
     </div>
   </div>
 
-  <script src="importar.js"></script>
+  <script src="common.js?v=5"></script>
+  <script src="importar.js?v=5"></script>
 </body>
 </html>

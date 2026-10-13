@@ -120,12 +120,33 @@ function renderizarTabelaPreview() {
         return;
     }
 
+    // Avisa antes de importar: linhas sem CPF não são salvas e CPF repetido
+    // sobrescreve o aluno anterior
+    const contagemCpf = {};
+    alunosParaImportar.forEach(a => { if (a.cpf_limpo) contagemCpf[a.cpf_limpo] = (contagemCpf[a.cpf_limpo] || 0) + 1; });
+    const semCpf = alunosParaImportar.filter(a => !a.cpf_limpo).length;
+    const repetidos = Object.values(contagemCpf).filter(n => n > 1).length;
+    const cpfInvalido = alunosParaImportar.filter(a => a.cpf_limpo && a.cpf_limpo.length !== 11).length;
+    const avisos = [];
+    if (semCpf) avisos.push(`${semCpf} aluno(s) sem CPF — não serão importados.`);
+    if (repetidos) avisos.push(`${repetidos} CPF(s) repetido(s) — só a primeira linha será importada.`);
+    if (cpfInvalido) avisos.push(`${cpfInvalido} CPF(s) sem 11 dígitos — confira.`);
+    const boxAvisos = document.getElementById('avisosPreview');
+    if (boxAvisos) {
+        boxAvisos.innerHTML = avisos.map(a => `⚠️ ${a}`).join('<br>');
+        boxAvisos.classList.toggle('hidden', avisos.length === 0);
+    }
+
     alunosParaImportar.forEach((aluno, index) => {
         const tr = document.createElement('tr');
+        const problema = !aluno.cpf_limpo ? 'sem CPF'
+            : contagemCpf[aluno.cpf_limpo] > 1 ? 'CPF repetido'
+            : aluno.cpf_limpo.length !== 11 ? 'CPF incompleto' : '';
+        if (problema) tr.style.background = '#fef2f2';
         tr.innerHTML = `
-            <td>${aluno.nome}</td>
-            <td>${aluno.cpf}</td>
-            <td>${aluno.turma}</td>
+            <td>${Ellus.esc(aluno.nome)}</td>
+            <td>${Ellus.esc(aluno.cpf)}${problema ? ` <span class="badge badge-danger">${problema}</span>` : ''}</td>
+            <td>${Ellus.esc(aluno.turma)}</td>
             <td style="text-align:center;">
                 <button class="btn-edit" onclick="abrirModalEdicao(${index})" title="Editar">
                     <i class="fas fa-edit"></i>
@@ -238,7 +259,9 @@ async function enviarDados() {
         });
         const data = await res.json();
         if (data.success) {
-            alert('✅ Importado com sucesso!');
+            const ignorados = data.ignorados || [];
+            alert(`✅ ${data.message || 'Importado com sucesso!'}` +
+                (ignorados.length ? `\n\nNão importados:\n${ignorados.slice(0, 15).map(i => `• ${i.nome || '(sem nome)'} — ${i.motivo}`).join('\n')}${ignorados.length > 15 ? `\n... e mais ${ignorados.length - 15}` : ''}` : ''));
             document.getElementById('filterDataInicio').value = inputs.inicio;
             limparImportacao();
             buscarGrupos(); // Atualiza a lista de grupos automaticamente
@@ -293,9 +316,11 @@ function agruparDados(listaAlunos) {
                 passeio: idPasseioReal, 
                 onibus: onibusReal,
                 data: dataReal,
+                pernoite: false,
                 alunos: []
             };
         }
+        if (aluno.pernoite === true) gruposEncontrados[chave].pernoite = true;
         gruposEncontrados[chave].alunos.push(aluno);
     });
     renderizarTabelaGrupos();
@@ -308,18 +333,19 @@ function renderizarTabelaGrupos() {
     tbody.innerHTML = '';
     const chaves = Object.keys(gruposEncontrados);
     if (chaves.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center">Nenhum registro encontrado nesta data.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center">Nenhum registro encontrado nesta data.</td></tr>';
         return;
     }
     chaves.forEach(chave => {
         const g = gruposEncontrados[chave];
         tbody.innerHTML += `
             <tr>
-                <td><input type="checkbox" class="grupo-checkbox" value="${chave}"></td>
-                <td>${g.colegio}</td>
-                <td>${g.passeio}</td>
-                <td>${g.onibus}</td>
-                <td>${g.data}</td>
+                <td><input type="checkbox" class="grupo-checkbox" value="${Ellus.esc(chave)}"></td>
+                <td>${Ellus.esc(g.colegio)}</td>
+                <td>${Ellus.esc(g.passeio)}</td>
+                <td>${Ellus.esc(g.onibus)}</td>
+                <td>${Ellus.esc(Ellus.formatarData(g.data))}</td>
+                <td>${g.pernoite ? '<span class="badge badge-info">Pernoite</span>' : '<span class="badge badge-off">Sem pernoite</span>'}</td>
                 <td>${g.alunos.length}</td>
             </tr>
         `;
@@ -337,11 +363,9 @@ async function gerarPDFSelecionados() {
     const checkboxes = document.querySelectorAll('.grupo-checkbox:checked');
     if (checkboxes.length === 0) return alert('Selecione pelo menos um colégio/grupo.');
 
-    // Status Facial
-    const checkFacial = document.getElementById('checkFacial');
-    const isFacialChecked = checkFacial ? checkFacial.checked : false;
-    const facialVisual = isFacialChecked ? 'SIM' : 'NÃO';
-    const facialQR = isFacialChecked ? 'sim' : 'não';
+ // Facial no QR: pelo tipo da viagem (padrão) ou forçado.
+    // Antes havia dois campos com o mesmo id e o QR lia o da importação.
+    const modoFacial = (document.getElementById('modoFacialQR') || {}).value || 'auto';
     
     toggleLoading(true, 'Gerando PDF...');
 
@@ -359,6 +383,10 @@ async function gerarPDFSelecionados() {
         const grupo = gruposEncontrados[cb.value];
         
         if (!grupo) continue;
+
+        const isFacialChecked = modoFacial === 'sim' || (modoFacial === 'auto' && grupo.pernoite);
+        const facialVisual = isFacialChecked ? 'SIM' : 'NÃO';
+        const facialQR = isFacialChecked ? 'sim' : 'não';
 
         // Adiciona nova página (exceto na primeira iteração)
         if (totalPageCount > 0) doc.addPage();
@@ -457,12 +485,6 @@ async function gerarQRCodeBase64(text) {
             }
         }
     });
-}
-
-function cleanup(element) {
-    if (document.body.contains(element)) {
-        document.body.removeChild(element);
-    }
 }
 
 function cleanup(element) {

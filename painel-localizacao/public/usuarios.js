@@ -107,9 +107,9 @@ function renderizarUsuarios() {
         const tr = document.createElement('tr');
         // Usamos replace no JSON.stringify para evitar problemas com aspas simples nos nomes
         tr.innerHTML = `
-            <td><strong>${user.nome}</strong></td>
+            <td><strong>${Ellus.esc(user.nome)}</strong></td>
             <td>${formatarCPF(user.cpf)}</td>
-            <td><span class="badge-perfil">${user.perfil || 'USER'}</span></td>
+            <td><span class="badge-perfil">${Ellus.esc(user.perfil || 'USER')}</span></td>
             <td><span class="${user.ativo !== false ? 'badge-ativo' : 'badge-inativo'}">${user.ativo !== false ? 'Ativo' : 'Inativo'}</span></td>
             <td style="text-align:center">
                 <button class="btn-icon edit" onclick='editarUsuario(${JSON.stringify(user).replace(/'/g, "&#39;")})' title="Editar">
@@ -138,6 +138,8 @@ function abrirModalNovo() {
     document.getElementById('formUsuario').reset();
     document.getElementById('usuarioId').value = '';
     document.getElementById('inputSenha').required = true;
+    document.getElementById('inputSenha').placeholder = '';
+    document.getElementById('inputCpf').readOnly = false;
     document.getElementById('modalUsuario').style.display = 'flex';
 }
 

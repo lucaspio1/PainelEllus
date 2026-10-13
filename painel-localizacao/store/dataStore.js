@@ -10,6 +10,17 @@ const dataStore = {
   embarques: new Map(),
   eventos: new Map(),
   logs: [], // Limite de 1000 entradas
+  // true quando o primeiro snapshot de cada coleção chegou do Firestore.
+  // Antes disso o cache está vazio/incompleto (cold start) e o delta sync
+  // não pode responder, senão o app avança o "since" e perde dados.
+  ready: {
+    alunos: false,
+    quartos: false,
+    usuarios: false,
+    embarques: false,
+    eventos: false,
+    logs: false
+  },
   lastUpdate: {
     alunos: null,
     quartos: null,
@@ -95,6 +106,15 @@ function stats() {
  * @param {Object} logDoc - Documento de log a ser adicionado.
  */
 function addLog(logDoc) {
+  // Mesmo log pode chegar pelo upload e pelo listener do Firestore: substitui
+  if (logDoc && logDoc.id) {
+    const idx = dataStore.logs.findIndex(l => l.id === logDoc.id);
+    if (idx >= 0) {
+      dataStore.logs[idx] = logDoc;
+      dataStore.lastUpdate.logs = new Date().toISOString();
+      return;
+    }
+  }
   dataStore.logs.push(logDoc);
   if (dataStore.logs.length > 1000) {
     // Remove os mais antigos se passar de 1000

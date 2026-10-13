@@ -130,3 +130,48 @@ test('tipo desconhecido vira erro só daquela operação', async () => {
   });
   assert.deepStrictEqual(results.map(r => r.status), ['error', 'ok']);
 });
+
+test('reenviar o mesmo log não duplica (ID determinístico)', async () => {
+  const db = fakeDb({ 'alunos/111': {} });
+  const op = { id: 'log_7', type: 'log', data: { cpf: '111.111', tipo: 'SAIU_DO_QUARTO', timestamp: '2026-10-13T01:00:00.000', event_at: '2026-10-13T04:00:00.000Z' } };
+  await processUploadOperations({ ...base(), db, operations: [op] });
+  await processUploadOperations({ ...base(), db, operations: [op] }); // resposta perdida → app reenvia
+  const logs = [...db.docs.keys()].filter(k => k.startsWith('logs/'));
+  assert.deepStrictEqual(logs, [`logs/111111_${Date.parse('2026-10-13T04:00:00.000Z')}_SAIU_DO_QUARTO`]);
+});
+
+test('movimentação antiga (celular que ficou offline) não sobrescreve a atual', async () => {
+  const db = fakeDb({ 'alunos/111': { movimentacao: 'QUARTO', movimentacao_at: '2026-10-13T03:00:00.000Z' } });
+  const { results } = await processUploadOperations({
+    ...base(), db,
+    operations: [
+      { id: 'log_1', type: 'log', data: { cpf: '111', tipo: 'SAIU_DO_QUARTO', event_at: '2026-10-13T01:00:00.000Z' } },
+      { id: 'mov_1', type: 'movimentacao', data: { cpf: '111', movimentacao: 'SAIU_DO_QUARTO', event_at: '2026-10-13T01:00:00.000Z' } }
+    ]
+  });
+  assert.deepStrictEqual(results.map(r => r.status), ['ok', 'skipped']); // histórico registrado, estado preservado
+  assert.strictEqual(db.docs.get('alunos/111').movimentacao, 'QUARTO');
+});
+
+test('movimentações do mesmo lote valem pela ordem dos eventos', async () => {
+  const db = fakeDb({ 'alunos/111': { movimentacao: 'QUARTO' } });
+  await processUploadOperations({
+    ...base(), db,
+    operations: [
+      { id: 'mov_2', type: 'movimentacao', data: { cpf: '111', movimentacao: 'VOLTOU_AO_QUARTO', event_at: '2026-10-13T02:00:00.000Z' } },
+      { id: 'mov_1', type: 'movimentacao', data: { cpf: '111', movimentacao: 'SAIU_DO_QUARTO', event_at: '2026-10-13T01:00:00.000Z' } }
+    ]
+  });
+  const doc = db.docs.get('alunos/111');
+  assert.strictEqual(doc.movimentacao, 'VOLTOU_AO_QUARTO');
+  assert.strictEqual(doc.movimentacao_at, '2026-10-13T02:00:00.000Z');
+});
+
+test('app antigo (sem event_at) continua atualizando a movimentação', async () => {
+  const db = fakeDb({ 'alunos/111': { movimentacao: 'QUARTO', movimentacao_at: '2026-10-13T03:00:00.000Z' } });
+  await processUploadOperations({
+    ...base(), db,
+    operations: [{ id: 'mov_1', type: 'movimentacao', data: { cpf: '111', movimentacao: 'FOI_PARA_BALADA' } }]
+  });
+  assert.strictEqual(db.docs.get('alunos/111').movimentacao, 'FOI_PARA_BALADA');
+});

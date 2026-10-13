@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HOMELIST - Atribuir Quartos - Ellus</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=5">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     .homelist-container { max-width: 1600px; margin: 20px auto; padding: 20px; height: calc(100vh - 140px); display: flex; flex-direction: column; }
@@ -66,6 +66,10 @@
     <div class="filters-section">
       <h3 style="margin-bottom: 15px;"><i class="fas fa-filter"></i> Filtros de Busca</h3>
       <div class="filters-grid">
+        <div class="filter-group" style="grid-column: span 2;">
+          <label>Viagem</label>
+          <select id="filterViagem"><option value="">Escolha a viagem (ou informe as datas)</option></select>
+        </div>
         <div class="filter-group">
           <label>Data Início Viagem *</label>
           <input type="date" id="filterInicio">
@@ -82,7 +86,15 @@
         </div>
         <div class="filter-group">
           <label>Pesquisar</label>
-          <input type="text" id="filterNome" placeholder="Nome ou CPF do aluno">
+          <input type="text" id="filterNome" placeholder="Nome, CPF ou quarto">
+        </div>
+        <div class="filter-group">
+          <label>Mostrar</label>
+          <select id="filterQuarto">
+            <option value="">Todos</option>
+            <option value="sem">Só sem quarto</option>
+            <option value="com">Só com quarto</option>
+          </select>
         </div>
       </div>
       <button class="btn btn-primary" onclick="buscarAlunos()">
@@ -154,6 +166,7 @@
                  class="room-input-large"
                  placeholder="Digite o número do quarto"
                  maxlength="10">
+          <div id="ocupacaoQuarto" class="muted" style="margin:-8px 0 12px; min-height:1.2em;"></div>
 
           <button class="btn-large btn-save-large" onclick="salvarQuartos()">
             <i class="fas fa-save"></i> <span id="btnSalvarTexto">Salvar Quarto</span>
@@ -174,6 +187,7 @@
     <p id="loadingText">Processando...</p>
   </div>
 
-  <script src="homelist.js"></script>
+  <script src="common.js?v=5"></script>
+  <script src="homelist.js?v=5"></script>
 </body>
 </html>
