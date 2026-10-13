@@ -14,6 +14,7 @@ const bcrypt = require('bcryptjs');
 const { dataStore, getAll, getById, getByFilter, getChangedSince, stats, addLog, clearCollection } = require('./store/dataStore');
 const { authMiddleware, requireAdmin, generateToken } = require('./middleware/auth');
 const { setupFirestoreListeners } = require('./store/firestoreListeners');
+const { processUploadOperations } = require('./store/uploadProcessor');
 
 // [FIREBASE] Inicialização com suporte a múltiplos ambientes
 if (!admin.apps.length) {
@@ -372,137 +373,28 @@ app.get('/api/mobile/sync', authMiddleware, (req, res) => {
 });
 
 // ✅ UPLOAD BATCH — App envia operações offline acumuladas
+// Cada operação recebe status próprio ('ok' | 'skipped' | 'error'); uma operação
+// inválida não derruba as demais. Ver store/uploadProcessor.js.
 app.post('/api/mobile/sync/upload', authMiddleware, async (req, res) => {
   try {
     const { operations } = req.body;
-    
+
     if (!operations || !Array.isArray(operations)) {
       return res.status(400).json({ success: false, message: 'Campo operations é obrigatório (array).' });
     }
 
-    const results = [];
-    const timestamp = new Date().toISOString();
-    
-    // Processar em batches do Firestore (max 500 ops por commit)
-    const batchSize = 500;
-    for (let i = 0; i < operations.length; i += batchSize) {
-      const chunk = operations.slice(i, i + batchSize);
-      const batch = db.batch();
-      
-      for (const op of chunk) {
-        try {
-          switch (op.type) {
-            case 'log': {
-              const logRef = db.collection('logs').doc();
-              const logData = {
-                ...op.data,
-                timestamp: op.data.timestamp || timestamp,
-                synced_from: 'mobile',
-                synced_by: req.user.cpf
-              };
-              batch.set(logRef, logData);
-              addLog({ id: logRef.id, ...logData }); // Atualiza cache RAM
-              results.push({ id: op.id, status: 'ok' });
-              break;
-            }
-            case 'movimentacao': {
-              const cpf = String(op.data.cpf).replace(/\D/g, '');
-              const alunoRef = db.collection('alunos').doc(cpf);
-              const updateData = {
-                movimentacao: op.data.movimentacao || op.data.novaLocalizacao,
-                updated_at: timestamp,
-                ultimo_usuario: op.data.operador || req.user.nome
-              };
-              batch.update(alunoRef, updateData);
-              
-              // Atualiza cache RAM
-              const aluno = dataStore.alunos.get(cpf);
-              if (aluno) {
-                Object.assign(aluno, updateData);
-                dataStore.alunos.set(cpf, aluno);
-              }
-              
-              // ✅ CORREÇÃO: Removido log duplicado de movimentação.
-              // O mobile já envia uma operação 'log' separada para cada evento.
-              // Criar outro log aqui duplicava as escritas no Firestore e
-              // disparava os onSnapshot listeners desnecessariamente.
-              
-              results.push({ id: op.id, status: 'ok' });
-              break;
-            }
-            case 'embedding': {
-              const cpf = String(op.data.cpf).replace(/\D/g, '');
-              const alunoRef = db.collection('alunos').doc(cpf);
-              const embData = {
-                embedding: op.data.embedding,
-                facial_cadastrada: true,
-                updated_at: timestamp
-              };
-              batch.set(alunoRef, embData, { merge: true });
-              
-              // Atualiza cache RAM
-              const aluno = dataStore.alunos.get(cpf);
-              if (aluno) {
-                Object.assign(aluno, embData);
-                dataStore.alunos.set(cpf, aluno);
-              }
-              
-              // Atualizar embarque também
-              const embRef = db.collection('embarques').doc(cpf);
-              batch.set(embRef, { 
-                Facial: 'CADASTRADA', 
-                facial_cadastrada: true,
-                updated_at: timestamp
-              }, { merge: true });
-              
-              const embarque = dataStore.embarques.get(cpf);
-              if (embarque) {
-                embarque.Facial = 'CADASTRADA';
-                embarque.facial_cadastrada = true;
-                embarque.updated_at = timestamp;
-                dataStore.embarques.set(cpf, embarque);
-              }
-              
-              results.push({ id: op.id, status: 'ok' });
-              break;
-            }
-            case 'embarque': {
-              const cpf = String(op.data.cpf).replace(/\D/g, '');
-              const embRef = db.collection('embarques').doc(cpf);
-              const embData = { 
-                ...op.data, 
-                updated_at: timestamp 
-              };
-              delete embData.cpf; // CPF já é o ID do doc
-              batch.set(embRef, embData, { merge: true });
-              
-              const embarque = dataStore.embarques.get(cpf);
-              if (embarque) {
-                Object.assign(embarque, embData);
-                dataStore.embarques.set(cpf, embarque);
-              }
-              
-              results.push({ id: op.id, status: 'ok' });
-              break;
-            }
-            default:
-              results.push({ id: op.id, status: 'error', message: `Tipo desconhecido: ${op.type}` });
-          }
-        } catch (opError) {
-          results.push({ id: op.id, status: 'error', message: opError.message });
-        }
-      }
-      
-      await batch.commit();
-    }
+    const { results, timestamp } = await processUploadOperations({
+      db,
+      dataStore,
+      addLog,
+      operations,
+      user: req.user
+    });
 
-    // ✅ CORREÇÃO: Removido `dataStore.lastUpdate.alunos/embarques = timestamp`
-    // O onSnapshot dos listeners já atualiza o lastUpdate naturalmente quando
-    // o Firestore confirma as escritas. Atualizar aqui incondicionalmente fazia
-    // com que TODA chamada de delta sync retornasse a coleção INTEIRA como "alterada",
-    // gerando centenas de milhares de leituras desnecessárias por dia.
+    const contagem = results.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; }, {});
+    console.log(`📥 Upload batch de [${req.user.cpf}]: ${operations.length} operações`, contagem);
+    results.filter(r => r.status === 'error').forEach(r => console.warn(`   ❌ ${r.id}: ${r.message}`));
 
-    console.log(`📥 Upload batch: ${operations.length} operações processadas de [${req.user.cpf}]`);
     res.json({ success: true, results, serverTime: timestamp });
   } catch (error) {
     console.error('Erro upload batch:', error);
