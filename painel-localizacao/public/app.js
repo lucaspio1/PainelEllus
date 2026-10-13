@@ -33,7 +33,13 @@ let debounceTimer = null;
 let operadorAtual = '';
 
 // Filtros (lembrados entre visitas; ?viagem= na URL tem prioridade)
-const filtros = Ellus.prefs.ler('quartos_filtros', { viagem: '', colegio: '', termo: '', status: '', limite: 30, visao: 'STATUS' });
+const filtros = Ellus.prefs.ler('quartos_filtros', { viagem: '', colegio: '', termo: '', status: '', limite: 60, visao: 'STATUS' });
+
+// Durante o dia as atividades são fora do quarto: o que pede atenção é o
+// aluno que fica NO QUARTO por muito tempo. A contagem só vale das 08h à 00h
+// e começa às 08h para quem dormiu no quarto.
+const HORA_INICIO_DIA = 8;
+const ehPeriodoDiurno = () => new Date().getHours() >= HORA_INICIO_DIA;
 
 const paginacao = { quarto: 1, fora: 1, balada: 1 };
 
@@ -54,7 +60,8 @@ async function init() {
   if (params.get('viagem')) filtros.viagem = params.get('viagem');
 
   el('inputPesquisa').value = filtros.termo || '';
-  el('limiteMin').value = String(filtros.limite || 30);
+  if (![30, 60, 120, 180].includes(Number(filtros.limite))) filtros.limite = 60;
+  el('limiteMin').value = String(filtros.limite);
   marcarChip(filtros.status);
   aplicarVisao();
 
@@ -178,10 +185,34 @@ function categoria(p) {
   return 'quarto';
 }
 
+/** Minutos no quarto contados a partir das 08h de hoje (null fora do horário ou se não está no quarto). */
+function viagemAcontecendoHoje(p) {
+  const hoje = Ellus.hojeISO();
+  const ini = String(p.inicio_viagem || '');
+  const fim = String(p.fim_viagem || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ini)) return true; // data antiga sem ano: não esconde
+  return ini <= hoje && (!/^\d{4}-\d{2}-\d{2}$/.test(fim) || hoje <= fim);
+}
+
+function minutosNoQuarto(p) {
+  if (categoria(p) !== 'quarto' || !ehPeriodoDiurno() || !viagemAcontecendoHoje(p)) return null;
+  const inicioDia = new Date();
+  inicioDia.setHours(HORA_INICIO_DIA, 0, 0, 0);
+  const entrada = Ellus.paraDate(p.movimentacao_at);
+  const desde = entrada && entrada > inicioDia ? entrada : inicioDia;
+  return Math.max(0, (Date.now() - desde.getTime()) / 60000);
+}
+
 function emAlerta(p) {
-  if (categoria(p) === 'quarto') return false;
-  const min = Ellus.minutosDesde(p.movimentacao_at);
-  return min !== null && min >= (filtros.limite || 30);
+  const min = minutosNoQuarto(p);
+  return min !== null && min >= (filtros.limite || 60);
+}
+
+function formatarDuracao(min) {
+  const m = Math.round(min);
+  if (m < 1) return 'agora';
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`;
 }
 
 function correspondeBusca(p) {
@@ -222,18 +253,22 @@ function renderizarPainel() {
   else renderizarGridQuartos(filtrados);
 }
 
-function ordenarPorTempo(lista) {
-  // Quem está fora há mais tempo aparece primeiro
-  return lista.slice().sort((a, b) => (Ellus.minutosDesde(b.movimentacao_at) || 0) - (Ellus.minutosDesde(a.movimentacao_at) || 0));
+function ordenarPorNome(lista) {
+  return lista.slice().sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+}
+
+function ordenarPorTempoNoQuarto(lista) {
+  // Durante o dia, quem está no quarto há mais tempo aparece primeiro
+  if (!ehPeriodoDiurno()) return ordenarPorNome(lista);
+  return lista.slice().sort((a, b) => (minutosNoQuarto(b) || 0) - (minutosNoQuarto(a) || 0));
 }
 
 function renderizarColunasStatus(pessoas) {
   const cats = { quarto: [], fora: [], balada: [] };
   pessoas.forEach(p => cats[categoria(p)].push(p));
-  cats.quarto.sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
-  renderizarLista(el('listaQuarto'), cats.quarto, el('countQuarto'), STATUS.QUARTO, 'quarto');
-  renderizarLista(el('listaFora'), ordenarPorTempo(cats.fora), el('countFora'), STATUS.FORA, 'fora');
-  renderizarLista(el('listaBalada'), ordenarPorTempo(cats.balada), el('countBalada'), STATUS.BALADA, 'balada');
+  renderizarLista(el('listaQuarto'), ordenarPorTempoNoQuarto(cats.quarto), el('countQuarto'), STATUS.QUARTO, 'quarto');
+  renderizarLista(el('listaFora'), ordenarPorNome(cats.fora), el('countFora'), STATUS.FORA, 'fora');
+  renderizarLista(el('listaBalada'), ordenarPorNome(cats.balada), el('countBalada'), STATUS.BALADA, 'balada');
 }
 
 function renderizarLista(container, pessoas, countElem, statusDestino, chave) {
@@ -257,9 +292,9 @@ function renderizarLista(container, pessoas, countElem, statusDestino, chave) {
 }
 
 function textoTempo(p) {
-  if (categoria(p) === 'quarto') return '';
-  const t = Ellus.tempoDesde(p.movimentacao_at);
-  return t ? `<span class="tempo-fora ${emAlerta(p) ? 'alerta-tempo' : ''}">⏱ ${t}</span>` : '';
+  const min = minutosNoQuarto(p);
+  if (min === null) return '';
+  return `<span class="tempo-quarto ${emAlerta(p) ? 'alerta-tempo' : ''}">⏱ no quarto há ${formatarDuracao(min)}</span>`;
 }
 
 function criarCardAluno(p) {
@@ -317,13 +352,15 @@ function renderizarGridQuartos(pessoas) {
 }
 
 function criarCardQuarto(numero, alunos) {
-  const foraCount = alunos.filter(a => categoria(a) !== 'quarto').length;
+  const dentro = alunos.filter(a => categoria(a) === 'quarto').length;
+  const emAlertaCount = alunos.filter(emAlerta).length;
   const div = document.createElement('div');
-  div.className = `room-card ${foraCount ? 'room-warning' : ''} ${numero ? '' : 'room-sem-numero'}`;
+  // Destaque: alguém no quarto há mais tempo que o limite (durante o dia)
+  div.className = `room-card ${emAlertaCount ? 'room-warning' : ''} ${numero ? '' : 'room-sem-numero'}`;
   div.innerHTML = `
     <div class="room-header">
       <div class="room-title"><i class="fas fa-door-closed"></i> ${numero ? `Quarto ${esc(numero)}` : 'Sem quarto atribuído'}</div>
-      <span class="room-count">${foraCount ? `${foraCount} fora · ` : ''}👥 ${alunos.length}</span>
+      <span class="room-count">${emAlertaCount ? `⏰ ${emAlertaCount} · ` : ''}🛌 ${dentro}/${alunos.length}</span>
     </div>
     <div class="room-list"></div>`;
   const lista = div.querySelector('.room-list');

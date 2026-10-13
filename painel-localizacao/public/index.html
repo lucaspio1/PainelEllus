@@ -45,16 +45,16 @@
           <button class="chip" data-valor="quarto">🛌 No quarto <span class="count" id="cntQuarto">0</span></button>
           <button class="chip" data-valor="fora">🚶 Fora <span class="count" id="cntFora">0</span></button>
           <button class="chip" data-valor="balada">🎉 Balada <span class="count" id="cntBalada">0</span></button>
-          <button class="chip" data-valor="alerta" title="Fora do quarto há mais tempo que o limite">⏰ Fora há muito tempo <span class="count" id="cntAlerta">0</span></button>
+          <button class="chip" data-valor="alerta" title="No quarto há mais tempo que o limite (contagem das 08h às 00h)">⏰ No quarto há muito tempo <span class="count" id="cntAlerta">0</span></button>
         </div>
       </div>
       <div class="filter-field" style="min-width:110px">
-        <label for="limiteMin">Alerta após</label>
+        <label for="limiteMin" title="Contagem das 08h às 00h">No quarto há mais de</label>
         <select id="limiteMin" class="form-select">
-          <option value="15">15 min</option>
           <option value="30">30 min</option>
           <option value="60">1 hora</option>
           <option value="120">2 horas</option>
+          <option value="180">3 horas</option>
         </select>
       </div>
     </section>
