@@ -65,10 +65,17 @@
       </a>
       
 
-      <div class="menu-card" onclick="window.location.href='/gerenciar-viagens.html'">
-      <i class="fas fa-route"></i>
-      <span>Gerenciar Viagens</span>
-      </div>
+      <!-- Gerenciar Viagens -->
+      <a href="/viagens" class="menu-card">
+        <div class="menu-icon-box icon-trips">
+          <i class="fas fa-route"></i>
+        </div>
+        <h2 class="menu-title">Gerenciar Viagens</h2>
+        <p class="menu-desc">Ver o andamento de cada viagem, editar datas, colégio e tipo (pernoite), ou excluir viagens encerradas.</p>
+        <div class="menu-arrow">
+          <i class="fas fa-arrow-right"></i> Acessar
+        </div>
+      </a>
 
       <!-- Botão 4: HOMELIST -->
       <a href="/homelist" class="menu-card">
@@ -97,7 +104,7 @@
     </div>
 
     <footer style="color: #888; font-size: 0.8rem; margin-top: 20px;">
-        Ellus Turismo &copy; 2025
+        Ellus Turismo &copy; <span id="ano"></span>
     </footer>
 
   </div>
@@ -105,7 +112,7 @@
   <script>
     // Verifica Login
     const user = localStorage.getItem('painel_user');
-    if (!user) window.location.href = '/login';
+    if (!user || !localStorage.getItem('painel_token')) window.location.href = '/login';
     
     try {
         const userData = JSON.parse(user);
@@ -114,9 +121,12 @@
         console.error(e);
     }
 
+    document.getElementById('ano').textContent = new Date().getFullYear();
+
     function logout() {
       if(confirm('Sair do sistema?')) {
         localStorage.removeItem('painel_user');
+        localStorage.removeItem('painel_token');
         window.location.href = '/login';
       }
     }

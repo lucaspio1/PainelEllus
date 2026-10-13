@@ -4,116 +4,152 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gerenciar Viagens - Painel Ellus</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=5">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-  <style>
-    /* Estilos específicos para esta tela, mantendo a harmonia visual */
-    .table-container {
-      background: var(--bg-card);
-      border-radius: var(--border-radius);
-      padding: 1.5rem;
-      margin-top: 1.5rem;
-      box-shadow: var(--shadow);
-      overflow-x: auto;
-    }
-    .viagens-table {
-      width: 100%;
-      border-collapse: collapse;
-      color: var(--text-color);
-    }
-    .viagens-table th, .viagens-table td {
-      padding: 1rem;
-      text-align: left;
-      border-bottom: 1px solid rgba(255,255,255,0.1);
-    }
-    .viagens-table th {
-      color: var(--primary-color);
-      font-weight: 600;
-      text-transform: uppercase;
-      font-size: 0.85rem;
-      letter-spacing: 0.5px;
-    }
-    .viagens-table tr:hover {
-      background-color: rgba(255,255,255,0.02);
-    }
-    .controls-gerenciar {
-      display: flex;
-      gap: 1rem;
-      margin-bottom: 1rem;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    .btn-excluir {
-      background-color: var(--danger-color);
-      color: white;
-      border: none;
-      padding: 0.5rem 1rem;
-      border-radius: var(--border-radius);
-      cursor: pointer;
-      transition: opacity 0.2s;
-    }
-    .btn-excluir:hover {
-      opacity: 0.8;
-    }
-    .info-total {
-      color: var(--text-color);
-      opacity: 0.7;
-      font-size: 0.9rem;
-      margin-left: auto;
-    }
-  </style>
 </head>
 <body>
   <div class="app-container">
     <header class="top-bar">
-      <div class="logo-area" style="cursor:pointer" onclick="window.location.href='/home'">
-        <i class="fas fa-arrow-left"></i> Voltar ao Menu
+      <div class="logo-area" onclick="window.location.href='/home'">
+        <i class="fas fa-arrow-left"></i> Voltar
       </div>
-      
-      <div class="operator-area">
-        <span class="operator-name">Gerenciamento de Viagens</span>
+      <div style="flex:1; text-align:center; font-weight:700; color:var(--brand-dark-green);">
+        <i class="fas fa-route"></i> Gerenciar Viagens
       </div>
-
-      <div class="controls-area">
-        </div>
+      <div class="operator-area"><span id="nomeOperador" class="operator-name">Usuário</span></div>
     </header>
 
-    <main class="main-content" style="padding: 2rem;">
-      <div class="header-section" style="margin-bottom: 1rem;">
-        <h2><i class="fas fa-route" style="color: var(--primary-color);"></i> Viagens Cadastradas</h2>
-        <p style="color: var(--text-color); opacity: 0.8;">Gerencie e exclua os dados importados das viagens concluídas.</p>
-      </div>
+    <section class="kpis">
+      <div class="kpi"><div class="kpi-val" id="kpiAndamento">0</div><div class="kpi-label">Em andamento</div></div>
+      <div class="kpi" style="border-left-color:#3b82f6"><div class="kpi-val" id="kpiFuturas">0</div><div class="kpi-label">Próximas</div></div>
+      <div class="kpi" style="border-left-color:#9ca3af"><div class="kpi-val" id="kpiEncerradas">0</div><div class="kpi-label">Encerradas</div></div>
+      <div class="kpi" style="border-left-color:var(--col-fora)"><div class="kpi-val" id="kpiAlunos">0</div><div class="kpi-label">Alunos viajando agora</div></div>
+    </section>
 
-      <div class="controls-gerenciar">
-        <div class="control-item" style="flex: 1; min-width: 250px;">
-          <input type="text" id="pesquisaViagem" class="form-input" placeholder="🔍 Buscar por colégio ou passeio..." onkeyup="filtrarViagens()">
-        </div>
-        <div class="control-item">
-          <input type="month" id="filtroData" class="form-input" onchange="filtrarViagens()">
-        </div>
-        <div class="info-total" id="totalViagensTexto">
-          Carregando...
+    <section class="filters-bar">
+      <div class="filter-field grow">
+        <label for="pesquisaViagem">Buscar</label>
+        <input type="text" id="pesquisaViagem" class="form-input" placeholder="Colégio, passeio ou ônibus">
+      </div>
+      <div class="filter-field">
+        <label>Situação</label>
+        <div class="chips" id="chipsSituacao">
+          <button class="chip active" data-valor="">Todas</button>
+          <button class="chip" data-valor="andamento">Em andamento</button>
+          <button class="chip" data-valor="futura">Próximas</button>
+          <button class="chip" data-valor="encerrada">Encerradas</button>
         </div>
       </div>
+      <div class="filter-field">
+        <label for="filtroTipo">Tipo</label>
+        <select id="filtroTipo" class="form-select">
+          <option value="">Todas</option>
+          <option value="pernoite">Com pernoite</option>
+          <option value="comum">Sem pernoite</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="filtroMes">Mês de início</label>
+        <input type="month" id="filtroMes" class="form-input">
+      </div>
+      <div class="filter-field">
+        <label>&nbsp;</label>
+        <button class="btn btn-outline" id="btnLimparFiltros"><i class="fas fa-eraser"></i> Limpar</button>
+      </div>
+    </section>
 
-      <div class="table-container">
-        <table class="viagens-table">
+    <main class="main-content scroll-y">
+      <div class="data-card">
+        <table class="data-table">
           <thead>
             <tr>
-              <th>Colégio</th>
-              <th>Data Início</th>
-              <th>Data Fim</th>
-              <th>Qtd. Alunos</th>
-              <th style="text-align: right;">Ações</th>
+              <th>Colégio / Passeio</th>
+              <th>Período</th>
+              <th>Tipo</th>
+              <th class="num">Alunos</th>
+              <th>Embarque</th>
+              <th>Retorno</th>
+              <th>Faciais</th>
+              <th>Quartos</th>
+              <th class="acoes">Ações</th>
             </tr>
           </thead>
           <tbody id="tabelaViagensBody">
-            </tbody>
+            <tr><td colspan="9" class="muted" style="text-align:center; padding:30px;">Carregando viagens...</td></tr>
+          </tbody>
         </table>
       </div>
+      <p class="muted" id="totalViagensTexto" style="margin-top:10px;"></p>
     </main>
   </div>
 
-  <script src="gerenciar.js"></script>
+  <!-- Modal: editar viagem -->
+  <div id="modalEditar" class="modal-overlay">
+    <div class="modal-box" style="max-width:560px;">
+      <div class="modal-header"><h3><i class="fas fa-pen"></i> Editar viagem</h3><button class="btn-close" data-fechar>&times;</button></div>
+      <form id="formEditar">
+        <div class="modal-body">
+          <div class="alerta" id="avisoEdicao">As alterações valem para todos os alunos desta viagem (embarque, quartos e app).</div>
+          <div class="form-field">
+            <label for="editColegio">Colégio</label>
+            <input type="text" id="editColegio" required>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label for="editInicio">Início</label>
+              <input type="date" id="editInicio" required>
+            </div>
+            <div class="form-field">
+              <label for="editFim">Fim</label>
+              <input type="date" id="editFim" required>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="editPasseio">ID do passeio</label>
+            <input type="text" id="editPasseio">
+            <small id="editPasseioInfo"></small>
+          </div>
+          <div class="form-field">
+            <label for="editPernoite">Tipo de viagem</label>
+            <select id="editPernoite">
+              <option value="true">Com pernoite (controle de quartos por facial)</option>
+              <option value="false">Sem pernoite (só embarque e retorno)</option>
+            </select>
+            <small>Viagens sem pernoite não aparecem no Controle de Quartos.</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" data-fechar>Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btnSalvarEdicao"><i class="fas fa-save"></i> Salvar alterações</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: excluir viagem -->
+  <div id="modalExcluir" class="modal-overlay">
+    <div class="modal-box" style="max-width:480px;">
+      <div class="modal-header" style="background:#b91c1c;"><h3><i class="fas fa-triangle-exclamation"></i> Excluir viagem</h3><button class="btn-close" data-fechar>&times;</button></div>
+      <div class="modal-body">
+        <p id="textoExcluir" style="margin-bottom:12px;"></p>
+        <div class="alerta">Isso apaga alunos, quartos e a lista de embarque desta viagem. Não pode ser desfeito.</div>
+        <div class="form-field">
+          <label for="confirmaExcluir">Digite <strong>EXCLUIR</strong> para confirmar</label>
+          <input type="text" id="confirmaExcluir" autocomplete="off">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" data-fechar>Cancelar</button>
+        <button type="button" class="btn btn-danger" id="btnConfirmarExcluir" disabled><i class="fas fa-trash"></i> Excluir</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="loadingOverlay" class="loading-overlay hidden"><div class="spinner"></div><p id="loadingText">Processando...</p></div>
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="common.js?v=5"></script>
+  <script src="gerenciar.js?v=5"></script>
 </body>
 </html>

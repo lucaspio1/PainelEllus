@@ -3,51 +3,62 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Painel Ellus - Gestão de Alunos</title>
-  <link rel="stylesheet" href="style.css">
+  <title>Controle de Quartos - Ellus</title>
+  <link rel="stylesheet" href="style.css?v=5">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
   <div class="app-container">
-    <!-- Top Bar -->
     <header class="top-bar">
-      <div class="logo-area" style="cursor:pointer" onclick="window.location.href='/home'">
+      <div class="logo-area" onclick="window.location.href='/home'">
         <i class="fas fa-arrow-left"></i> Voltar
       </div>
-      
-      <div class="operator-area">
-        <span id="nomeOperadorDisplay" class="operator-name">Olá, Visitante</span>
-        <!-- O botão de logout será removido daqui pois já tem na home, mas mantemos para funcionalidade -->
+      <div style="flex:1; text-align:center; font-weight:700; color:var(--brand-dark-green);">
+        <i class="fas fa-bed"></i> Controle de Quartos
       </div>
-
       <div class="controls-area">
-        <div class="control-item">
-          <select id="filtroViagem" class="form-select">
-            <option value="">Todas as Viagens</option>
-          </select>
-        </div>
-        <div class="control-item">
-          <input type="text" id="inputPesquisa" class="form-input" placeholder="Nome, CPF ou Quarto...">
-        </div>
-        <div class="control-actions">
-          <button id="btnAtualizar" class="btn btn-primary" title="Atualizar Dados"><i class="fas fa-sync-alt"></i></button>
-          <button id="btnToggleView" class="btn btn-secondary"><i class="fas fa-th"></i> 🏨 Quartos</button>
-        </div>
+        <small id="ultimaAtualizacao" class="muted">Atualizando...</small>
+        <button id="btnAtualizar" class="btn btn-outline btn-sm" title="Atualizar (F5)"><i class="fas fa-sync-alt"></i> Atualizar</button>
+        <button id="btnExportar" class="btn btn-outline btn-sm" title="Baixar lista filtrada (Excel/CSV)"><i class="fas fa-file-csv"></i> Exportar</button>
+        <button id="btnToggleView" class="btn btn-primary btn-sm"><i class="fas fa-th"></i> Ver por quarto</button>
       </div>
-      <div class="info-area">
-        <small id="ultimaAtualizacao">Atualizando...</small>
-      </div>
+      <div class="operator-area"><span id="nomeOperadorDisplay" class="operator-name">Olá</span></div>
     </header>
 
-    <!-- Stats Bar -->
-    <section class="stats-bar">
-      <div class="stat-box"><span class="stat-val" id="totalAlunos">0</span><span class="stat-label">Total</span></div>
-      <div class="stat-box s-quarto"><span class="stat-val" id="totalQuarto">0</span><span class="stat-label">No Quarto</span></div>
-      <div class="stat-box s-fora"><span class="stat-val" id="totalFora">0</span><span class="stat-label">Fora</span></div>
-      <div class="stat-box s-balada"><span class="stat-val" id="totalBalada">0</span><span class="stat-label">Balada</span></div>
+    <section class="filters-bar">
+      <div class="filter-field">
+        <label for="filtroViagem">Viagem</label>
+        <select id="filtroViagem" class="form-select"><option value="">Todas as viagens</option></select>
+      </div>
+      <div class="filter-field">
+        <label for="filtroColegio">Colégio</label>
+        <select id="filtroColegio" class="form-select"><option value="">Todos os colégios</option></select>
+      </div>
+      <div class="filter-field grow">
+        <label for="inputPesquisa">Buscar</label>
+        <input type="text" id="inputPesquisa" class="form-input" placeholder="Nome, CPF ou nº do quarto">
+      </div>
+      <div class="filter-field">
+        <label>Mostrar</label>
+        <div class="chips" id="chipsStatus">
+          <button class="chip active" data-valor="">Todos <span class="count" id="cntTodos">0</span></button>
+          <button class="chip" data-valor="quarto">🛌 No quarto <span class="count" id="cntQuarto">0</span></button>
+          <button class="chip" data-valor="fora">🚶 Fora <span class="count" id="cntFora">0</span></button>
+          <button class="chip" data-valor="balada">🎉 Balada <span class="count" id="cntBalada">0</span></button>
+          <button class="chip" data-valor="alerta" title="Fora do quarto há mais tempo que o limite">⏰ Fora há muito tempo <span class="count" id="cntAlerta">0</span></button>
+        </div>
+      </div>
+      <div class="filter-field" style="min-width:110px">
+        <label for="limiteMin">Alerta após</label>
+        <select id="limiteMin" class="form-select">
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="60">1 hora</option>
+          <option value="120">2 horas</option>
+        </select>
+      </div>
     </section>
 
-    <!-- Conteúdo Principal -->
     <main class="main-content">
       <div id="viewStatus" class="view-columns">
         <div class="column col-quarto">
@@ -67,21 +78,27 @@
     </main>
   </div>
 
-  <!-- Modal e Helpers -->
   <div id="modalDetalhes" class="modal-overlay">
     <div class="modal-box">
-      <div class="modal-header"><h3>Detalhes</h3><button class="btn-close" onclick="fecharModal()">&times;</button></div>
+      <div class="modal-header"><h3>Detalhes do aluno</h3><button class="btn-close" onclick="fecharModal()">&times;</button></div>
       <div class="modal-body">
-        <h2 id="detalheNome">--</h2><span id="detalheStatus" class="badge">--</span>
-        <div class="profile-info"><p><strong>CPF:</strong> <span id="detalheCpf">--</span></p><p><strong>Quarto:</strong> <span id="detalheQuarto">--</span></p><p><strong>Info:</strong> <span id="detalheInfo">--</span></p></div>
-        <div class="quick-actions"><p>Mover para:</p><div class="btn-group"><button class="btn btn-sm btn-green" onclick="moverNoModal('VOLTOU_AO_QUARTO')">Quarto</button><button class="btn btn-sm btn-orange" onclick="moverNoModal('SAIU_DO_QUARTO')">Fora</button><button class="btn btn-sm btn-purple" onclick="moverNoModal('FOI_PARA_BALADA')">Balada</button></div></div>
-        <div class="history-section"><h4>Histórico</h4><div id="listaHistorico" class="history-list"></div></div>
+        <h2 id="detalheNome">--</h2>
+        <div style="margin:6px 0 10px"><span id="detalheStatus" class="badge">--</span> <span id="detalheTempo" class="muted"></span></div>
+        <div class="profile-info">
+          <p><strong>CPF:</strong> <span id="detalheCpf">--</span></p>
+          <p><strong>Quarto:</strong> <span id="detalheQuarto">--</span></p>
+          <p><strong>Colégio:</strong> <span id="detalheInfo">--</span></p>
+          <p><strong>Facial:</strong> <span id="detalheFacial">--</span></p>
+        </div>
+        <div class="quick-actions"><p style="margin-top:12px"><strong>Mover para:</strong></p><div class="btn-group"><button class="btn btn-sm btn-green" onclick="moverNoModal('VOLTOU_AO_QUARTO')">🛌 Quarto</button><button class="btn btn-sm btn-orange" onclick="moverNoModal('SAIU_DO_QUARTO')">🚶 Fora</button><button class="btn btn-sm btn-purple" onclick="moverNoModal('FOI_PARA_BALADA')">🎉 Balada</button></div></div>
+        <div class="history-section" style="margin-top:16px"><h4>Histórico</h4><div id="listaHistorico" class="history-list"></div></div>
       </div>
     </div>
   </div>
-  <div id="loadingOverlay" class="loading-overlay"><div class="spinner"></div><p>Carregando...</p></div>
+  <div id="loadingOverlay" class="loading-overlay hidden"><div class="spinner"></div><p>Carregando...</p></div>
   <div id="toastContainer" class="toast-container"></div>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="app.js"></script>
+  <script src="common.js?v=5"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
