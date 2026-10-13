@@ -640,6 +640,7 @@ app.post('/api/movimentar', authMiddleware, async (req, res) => {
     if (!snapshot.empty) {
         await snapshot.docs[0].ref.update({
             movimentacao: novaLocalizacao,
+            movimentacao_at: timestamp,
             updated_at: timestamp,
             ultimo_usuario: usuarioResp
         });
@@ -649,6 +650,7 @@ app.post('/api/movimentar', authMiddleware, async (req, res) => {
     const alunoCache = dataStore.alunos.get(cpfLimpo);
     if (alunoCache) {
       alunoCache.movimentacao = novaLocalizacao;
+      alunoCache.movimentacao_at = timestamp;
       alunoCache.updated_at = timestamp;
       alunoCache.ultimo_usuario = usuarioResp;
       dataStore.alunos.set(cpfLimpo, alunoCache);
