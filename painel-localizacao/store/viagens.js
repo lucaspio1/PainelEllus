@@ -257,5 +257,6 @@ module.exports = {
   planejarExclusao,
   aplicarEmLotes,
   docsDaViagem,
-  chaveViagem
+  chaveViagem,
+  completarAno
 };

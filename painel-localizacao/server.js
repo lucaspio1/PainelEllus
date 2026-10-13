@@ -407,7 +407,12 @@ app.post('/api/mobile/auth/refresh', async (req, res) => {
 // Ver store/delta.js (cold start, margem de segurança e sync completo).
 app.get('/api/mobile/sync', authMiddleware, (req, res) => {
   try {
-    const resultado = montarDelta({ dataStore, since: req.query.since });
+    const resultado = montarDelta({
+      dataStore,
+      since: req.query.since,
+      // App novo pede só as viagens relevantes; o antigo continua recebendo tudo
+      soViagensAtivas: req.query.escopo === 'viagens_ativas'
+    });
 
     if (!resultado.pronto) {
       // Cache ainda carregando (instância acabou de subir). O app não avança
@@ -423,6 +428,7 @@ app.get('/api/mobile/sync', authMiddleware, (req, res) => {
       success: true, 
       serverTime: resultado.serverTime, 
       delta: resultado.delta,
+      ...(resultado.escopo ? { escopo: resultado.escopo } : {}),
       stats: stats()
     });
   } catch (error) {

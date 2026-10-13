@@ -15,6 +15,8 @@
  *   `updated_at`, que antes nunca entravam no delta.
  */
 
+const { calcularEscopo } = require('./escopo');
+
 const COLECOES_DELTA = ['alunos', 'quartos', 'embarques', 'eventos'];
 const MARGEM_MS = Number(process.env.DELTA_MARGIN_MS || 5 * 60 * 1000);
 
@@ -35,15 +37,22 @@ function cacheProntoParaDelta(dataStore) {
 /**
  * @returns {{pronto: false} | {pronto: true, delta: object, serverTime: string, completo: boolean}}
  */
-function montarDelta({ dataStore, since, now = new Date() }) {
+function montarDelta({ dataStore, since, now = new Date(), soViagensAtivas = false }) {
   if (!cacheProntoParaDelta(dataStore)) return { pronto: false };
+
+  // App novo: só alunos/quartos/embarques de viagens relevantes (ver escopo.js)
+  const escopo = soViagensAtivas ? calcularEscopo(dataStore, now) : null;
 
   const sinceMs = since ? Date.parse(since) : NaN;
   const completo = Number.isNaN(sinceMs);
 
   const delta = {};
   for (const col of COLECOES_DELTA) {
-    const docs = dataStore[col] instanceof Map ? Array.from(dataStore[col].values()) : [];
+    let docs = dataStore[col] instanceof Map ? Array.from(dataStore[col].values()) : [];
+    if (escopo && escopo.porColecao[col]) {
+      const permitidos = escopo.porColecao[col];
+      docs = [...dataStore[col].entries()].filter(([id]) => permitidos.has(id)).map(([, doc]) => doc);
+    }
     const alterados = completo
       ? docs
       : docs.filter(doc => {
@@ -53,12 +62,17 @@ function montarDelta({ dataStore, since, now = new Date() }) {
     if (alterados.length > 0) delta[col] = alterados;
   }
 
-  return {
+  const resposta = {
     pronto: true,
     delta,
     completo,
     serverTime: new Date(now.getTime() - MARGEM_MS).toISOString()
   };
+  if (escopo) {
+    // O celular apaga o que não está aqui e pede sync completo se faltar algo
+    resposta.escopo = { cpfs: [...escopo.cpfs], de: escopo.janela.de, ate: escopo.janela.ate };
+  }
+  return resposta;
 }
 
 module.exports = { montarDelta, paraMillis, cacheProntoParaDelta, COLECOES_DELTA, MARGEM_MS };
