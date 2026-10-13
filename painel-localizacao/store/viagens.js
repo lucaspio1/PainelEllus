@@ -10,7 +10,7 @@
  * `facial` = viagem com pernoite (controle de quartos por reconhecimento facial).
  * Funções puras: recebem o cache em RAM (dataStore) e devolvem o que gravar.
  */
-const { normalizarDataISO, mesmaData, chaveDiaMes } = require('./datas');
+const { normalizarDataISO, mesmaData, chaveDiaMes, deduzirDataISO, paraDate } = require('./datas');
 
 const CAMPOS = {
   alunos: { inicio: 'inicio_viagem', fim: 'fim_viagem' },
@@ -43,6 +43,25 @@ function docsDaViagem(dataStore, colegio, inicio) {
   return resultado;
 }
 
+/**
+ * Data antiga "DD/MM" (sem ano) → "AAAA-MM-DD".
+ * Usa o momento da importação (created_at) quando existe; senão, o ano que
+ * deixa a data mais perto de hoje. Assim "Saem amanhã" e "Acontecendo hoje"
+ * funcionam mesmo antes de rodar scripts/migrar-datas-viagem.js.
+ */
+function completarAno(valor, { referencia, hojeISO }) {
+  const iso = normalizarDataISO(valor);
+  if (iso) return iso;
+  if (!/^\s*\d{1,2}\/\d{1,2}\s*$/.test(String(valor || ''))) return String(valor || '');
+  const pelaImportacao = referencia ? deduzirDataISO(valor, referencia) : null;
+  if (pelaImportacao) return pelaImportacao;
+  const ano = Number(hojeISO.slice(0, 4));
+  const hoje = Date.parse(hojeISO);
+  const opcoes = [ano - 1, ano, ano + 1].map(a => normalizarDataISO(valor, { anoReferencia: a }));
+  return opcoes.reduce((melhor, d) =>
+    Math.abs(Date.parse(d) - hoje) < Math.abs(Date.parse(melhor) - hoje) ? d : melhor);
+}
+
 function situacao(inicioISO, fimISO, hojeISO) {
   if (!inicioISO) return 'indefinida';
   if (hojeISO < inicioISO) return 'futura';
@@ -56,7 +75,7 @@ const sim = (v) => String(v || '').trim().toUpperCase() === 'SIM';
 function listarViagens(dataStore, { hojeISO = new Date().toISOString().slice(0, 10) } = {}) {
   const viagens = new Map();
 
-  const obter = (colegio, inicio, fim) => {
+  const obter = (colegio, inicio, fim, criadoEm) => {
     const chave = chaveViagem(colegio, inicio);
     if (!viagens.has(chave)) {
       viagens.set(chave, {
@@ -71,16 +90,18 @@ function listarViagens(dataStore, { hojeISO = new Date().toISOString().slice(0, 
         retornados: 0,
         faciais_cadastradas: 0,
         com_quarto: 0,
-        pernoite: false
+        pernoite: false,
+        referencia: null // created_at da importação, para deduzir o ano de "DD/MM"
       });
     }
     const v = viagens.get(chave);
     if (!v.fim && fim) v.fim = normalizarDataISO(fim) || String(fim);
+    if (!v.referencia && paraDate(criadoEm)) v.referencia = criadoEm;
     return v;
   };
 
   for (const doc of (dataStore.embarques || new Map()).values()) {
-    const v = obter(doc.colegio, doc.inicioViagem, doc.fimViagem);
+    const v = obter(doc.colegio, doc.inicioViagem, doc.fimViagem, doc.created_at);
     if (doc.idPasseio) v.passeios.add(doc.idPasseio);
     if (doc.onibus) v.onibus.add(String(doc.onibus));
     if (doc.cpf) v.cpfs.add(doc.cpf);
@@ -95,7 +116,7 @@ function listarViagens(dataStore, { hojeISO = new Date().toISOString().slice(0, 
     if (doc.facial_cadastrada === true) v.faciais_cadastradas++;
   }
   for (const doc of (dataStore.quartos || new Map()).values()) {
-    const v = obter(doc.colegio, doc.inicio_viagem, doc.fim_viagem);
+    const v = obter(doc.colegio, doc.inicio_viagem, doc.fim_viagem, doc.created_at);
     if (doc.facial === true) v.pernoite = true;
     if (String(doc.numero_quarto || '').trim()) v.com_quarto++;
   }
@@ -119,12 +140,27 @@ function listarViagens(dataStore, { hojeISO = new Date().toISOString().slice(0, 
     viagens.delete(chave);
   }
 
+  // Completa o ano das datas antigas "DD/MM"
+  for (const v of viagens.values()) {
+    if (normalizarDataISO(v.inicio) && normalizarDataISO(v.fim)) continue;
+    v.data_sem_ano = true;
+    v.inicio = completarAno(v.inicio, { referencia: v.referencia, hojeISO });
+    if (v.fim) {
+      let fim = completarAno(v.fim, { referencia: normalizarDataISO(v.inicio) || v.referencia, hojeISO });
+      if (normalizarDataISO(v.inicio) && normalizarDataISO(fim) && fim < v.inicio) {
+        fim = `${Number(fim.slice(0, 4)) + 1}${fim.slice(4)}`; // viagem que vira o ano
+      }
+      v.fim = fim;
+    }
+  }
+
   return [...viagens.values()]
     .map(v => ({
       chave: v.chave,
       colegio: v.colegio,
       inicio: v.inicio,
       fim: v.fim,
+      data_sem_ano: v.data_sem_ano === true,
       passeios: [...v.passeios].sort(),
       onibus: [...v.onibus].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })),
       qtd_alunos: v.cpfs.size,

@@ -100,3 +100,27 @@ test('linhas sem CPF e CPF repetido são informadas', () => {
   assert.strictEqual(plano.novos, 1);
   assert.strictEqual(plano.escritas.length, 3);
 });
+
+test('datas antigas sem ano viram data completa (Saem amanhã / Acontecendo hoje)', () => {
+  const s = store({
+    embarques: [
+      // Importada pelo painel antigo: "DD/MM", com created_at da importação
+      { cpf: '1', colegio: 'ATLÂNTICO', inicioViagem: '14/10', fimViagem: '14/10', created_at: { toDate: () => new Date('2026-10-01T12:00:00Z') } },
+      // Sem created_at: usa o ano mais perto de hoje
+      { cpf: '2', colegio: 'PIONEIRO', inicioViagem: '13/10', fimViagem: '15/10' },
+      // Viagem que vira o ano
+      { cpf: '3', colegio: 'RÉVEILLON', inicioViagem: '30/12', fimViagem: '02/01', created_at: '2026-12-01T00:00:00Z' }
+    ]
+  });
+  const lista = listarViagens(s, { hojeISO: '2026-10-13' });
+  const por = (c) => lista.find(v => v.colegio === c);
+  assert.strictEqual(por('ATLÂNTICO').inicio, '2026-10-14');
+  assert.strictEqual(por('ATLÂNTICO').situacao, 'futura');
+  assert.strictEqual(por('ATLÂNTICO').data_sem_ano, true);
+  assert.strictEqual(por('PIONEIRO').inicio, '2026-10-13');
+  assert.strictEqual(por('PIONEIRO').situacao, 'andamento');
+  assert.strictEqual(por('RÉVEILLON').inicio, '2026-12-30');
+  assert.strictEqual(por('RÉVEILLON').fim, '2027-01-02');
+  // Editar/excluir com a data completa ainda encontra os registros "DD/MM"
+  assert.strictEqual(planejarExclusao(s, { colegio: 'ATLÂNTICO', inicio: '2026-10-14' }).porColecao.embarques, 1);
+});
