@@ -15,6 +15,7 @@ const { dataStore, getAll, getById, getByFilter, getChangedSince, stats, addLog,
 const { authMiddleware, requireAdmin, generateToken } = require('./middleware/auth');
 const { setupFirestoreListeners } = require('./store/firestoreListeners');
 const { processUploadOperations } = require('./store/uploadProcessor');
+const { emitirTokenDispositivo, validarTokenDispositivo, revogarDispositivosDoUsuario } = require('./store/deviceTokens');
 
 // [FIREBASE] Inicialização com suporte a múltiplos ambientes
 if (!admin.apps.length) {
@@ -311,23 +312,63 @@ app.post('/api/mobile/auth', async (req, res) => {
       migrarSenhaParaBcrypt(cpfLimpo, senha);
     }
 
-    const token = generateToken({ 
-      cpf: userData.cpf || cpfLimpo, 
-      perfil: userData.perfil || 'USER', 
-      nome: userData.nome 
-    });
+    const user = {
+      cpf: userData.cpf || cpfLimpo,
+      perfil: userData.perfil || 'USER',
+      nome: userData.nome
+    };
+    const token = generateToken(user);
+
+    // Token de dispositivo: permite ao app renovar o JWT sem senha depois de
+    // horas/dias offline (ver store/deviceTokens.js)
+    const dispositivo = await emitirTokenDispositivo(db, user, { userAgent: req.headers['user-agent'] });
 
     res.json({ 
       success: true, 
       token,
+      refresh_token: dispositivo.refresh_token,
+      refresh_expires_at: dispositivo.refresh_expires_at,
       user: { 
-        nome: userData.nome, 
-        perfil: userData.perfil || 'USER', 
-        cpf: userData.cpf || cpfLimpo
+        nome: user.nome, 
+        perfil: user.perfil, 
+        cpf: user.cpf
       }
     });
   } catch (error) {
     console.error('Erro Login Mobile:', error);
+    res.status(500).json({ success: false, message: 'Erro no servidor.' });
+  }
+});
+
+/** Usuário atual por CPF (cache RAM → Firestore). */
+async function buscarUsuarioPorCpf(cpf) {
+  const cpfLimpo = String(cpf || '').replace(/\D/g, '');
+  if (!cpfLimpo) return null;
+  let usuario = dataStore.usuarios.get(cpfLimpo);
+  if (!usuario) {
+    const found = getByFilter('usuarios', u => u.cpf === cpfLimpo);
+    if (found.length > 0) usuario = found[0];
+  }
+  if (!usuario) {
+    const snapshot = await db.collection('usuarios').where('cpf', '==', cpfLimpo).limit(1).get();
+    if (!snapshot.empty) usuario = snapshot.docs[0].data();
+  }
+  return usuario || null;
+}
+
+// ✅ RENOVAR JWT DO APP com o token de dispositivo (sem senha)
+app.post('/api/mobile/auth/refresh', async (req, res) => {
+  try {
+    const { refresh_token } = req.body || {};
+    const resultado = await validarTokenDispositivo(db, refresh_token, buscarUsuarioPorCpf);
+    if (!resultado.ok) {
+      console.warn(`🔒 Refresh recusado: ${resultado.motivo}`);
+      return res.status(401).json({ success: false, code: 'REFRESH_INVALIDO', message: resultado.motivo });
+    }
+    const token = generateToken(resultado.user);
+    res.json({ success: true, token, user: resultado.user });
+  } catch (error) {
+    console.error('Erro refresh mobile:', error);
     res.status(500).json({ success: false, message: 'Erro no servidor.' });
   }
 });
@@ -888,10 +929,26 @@ app.delete('/api/usuarios/:cpf', authMiddleware, requireAdmin, async (req, res) 
     // Remove do cache RAM
     dataStore.usuarios.delete(cpfLimpo);
 
+    // Celulares desse usuário não renovam mais o acesso
+    await revogarDispositivosDoUsuario(db, cpfLimpo);
+
     res.json({ success: true, message: 'Usuário excluído com sucesso!' });
   } catch (error) {
     console.error('Erro ao excluir usuário:', error);
     res.status(500).json({ success: false, message: 'Erro ao excluir usuário.' });
+  }
+});
+
+// Revogar acesso dos celulares de um usuário (ex.: celular perdido)
+app.post('/api/dispositivos/revogar', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const cpfLimpo = String((req.body || {}).cpf || '').replace(/\D/g, '');
+    if (!cpfLimpo) return res.status(400).json({ success: false, message: 'CPF obrigatório.' });
+    const total = await revogarDispositivosDoUsuario(db, cpfLimpo);
+    res.json({ success: true, message: `${total} dispositivo(s) revogado(s).` });
+  } catch (error) {
+    console.error('Erro ao revogar dispositivos:', error);
+    res.status(500).json({ success: false, message: 'Erro ao revogar dispositivos.' });
   }
 });
 
