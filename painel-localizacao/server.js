@@ -16,6 +16,7 @@ const { authMiddleware, requireAdmin, generateToken } = require('./middleware/au
 const { setupFirestoreListeners } = require('./store/firestoreListeners');
 const { processUploadOperations } = require('./store/uploadProcessor');
 const { montarDelta } = require('./store/delta');
+const { normalizarDataISO, mesmaData, formatarDataBR } = require('./store/datas');
 const { emitirTokenDispositivo, validarTokenDispositivo, revogarDispositivosDoUsuario } = require('./store/deviceTokens');
 
 // [FIREBASE] Inicialização com suporte a múltiplos ambientes
@@ -155,6 +156,11 @@ function formatarDataPTBR(dataISO) {
     const ano = data.getUTCFullYear();
     return `${dia}/${mes}/${ano}`;
   } catch (e) { return dataISO; }
+}
+
+/** Data de viagem para gravar: ISO "AAAA-MM-DD" (antes era "DD/MM", sem ano). */
+function dataViagem(valor) {
+  return normalizarDataISO(valor) || (valor ? String(valor) : '');
 }
 
 function formatarDataCurta(dataISO) {
@@ -446,7 +452,7 @@ app.get('/api/mobile/alunos', authMiddleware, (req, res) => {
       result = result.filter(a => a.colegio === colegio);
     }
     if (inicio) {
-      result = result.filter(a => a.inicio_viagem === inicio);
+      result = result.filter(a => mesmaData(a.inicio_viagem, inicio));
     }
 
     res.json({ success: true, data: result });
@@ -462,7 +468,7 @@ app.get('/api/mobile/embarques', authMiddleware, (req, res) => {
     let result = getAll('embarques');
     
     if (colegio) result = result.filter(e => e.colegio === colegio);
-    if (inicio) result = result.filter(e => e.inicioViagem === inicio);
+    if (inicio) result = result.filter(e => mesmaData(e.inicioViagem, inicio));
     if (idPasseio) result = result.filter(e => e.idPasseio === idPasseio);
     if (onibus) result = result.filter(e => e.onibus === onibus);
 
@@ -503,8 +509,8 @@ app.post('/api/importar', authMiddleware, async (req, res) => {
         cpf: cpfLimpo,
         nome_hospede: aluno.nome,
         numero_quarto: aluno.quarto || aluno.numero_quarto || '',
-        inicio_viagem: formatarDataCurta(aluno.inicio_viagem),
-        fim_viagem: formatarDataCurta(aluno.fim_viagem),
+        inicio_viagem: dataViagem(aluno.inicio_viagem),
+        fim_viagem: dataViagem(aluno.fim_viagem),
         facial: isFacial,
         created_at: agora,
         updated_at: timestamp
@@ -517,8 +523,8 @@ app.post('/api/importar', authMiddleware, async (req, res) => {
         cpf: cpfLimpo,
         nome: aluno.nome,
         turma: aluno.turma || '',
-        inicio_viagem: formatarDataCurta(aluno.inicio_viagem),
-        fim_viagem: formatarDataCurta(aluno.fim_viagem),
+        inicio_viagem: dataViagem(aluno.inicio_viagem),
+        fim_viagem: dataViagem(aluno.fim_viagem),
         movimentacao: 'QUARTO',
         facial: isFacial,
         updated_at: timestamp
@@ -536,8 +542,8 @@ app.post('/api/importar', authMiddleware, async (req, res) => {
         turma: cleanString(aluno.turma),
         idPasseio: cleanString(aluno.id_passeio),
         onibus: cleanString(aluno.onibus),
-        inicioViagem: formatarDataCurta(aluno.inicio_viagem),
-        fimViagem: formatarDataCurta(aluno.fim_viagem),
+        inicioViagem: dataViagem(aluno.inicio_viagem),
+        fimViagem: dataViagem(aluno.fim_viagem),
         embarque: "",
         retorno: "",
         created_at: agora,
@@ -579,13 +585,12 @@ app.get('/api/embarque-lista', authMiddleware, async (req, res) => {
     let embarques = getAll('embarques');
 
     // Filtros
+    // Aceita "AAAA-MM-DD" e o formato antigo "DD/MM" dos dois lados
     if (inicio) {
-      const inicioCurto = formatarDataCurta(inicio);
-      embarques = embarques.filter(e => e.inicioViagem === inicioCurto);
+      embarques = embarques.filter(e => mesmaData(e.inicioViagem, inicio));
     }
     if (fim) {
-      const fimCurto = formatarDataCurta(fim);
-      embarques = embarques.filter(e => e.fimViagem === fimCurto);
+      embarques = embarques.filter(e => mesmaData(e.fimViagem, fim));
     }
 
     const listaEmbarque = embarques.map(dados => ({
@@ -800,7 +805,7 @@ app.get('/api/viagens', authMiddleware, (req, res) => {
             viagensMap.set(key, {
                 inicio_viagem: inicio,
                 fim_viagem: fim,
-                label: `${inicio} até ${fim}`
+                label: `${formatarDataBR(inicio)} até ${formatarDataBR(fim)}`
             });
           }
         }
