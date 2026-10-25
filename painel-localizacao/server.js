@@ -212,14 +212,12 @@ async function verificarSenha(senhaDigitada, senhaArmazenada) {
 async function migrarSenhaParaBcrypt(cpf, senhaTextoPlano) {
   try {
     const hash = await bcrypt.hash(senhaTextoPlano, 10);
-    await db.collection('usuarios').doc(cpf).update({ senha: hash });
-    // Atualiza o cache em memória também
-    const usuario = dataStore.usuarios.get(cpf);
-    if (usuario) {
-      usuario.senha = hash;
-      usuario.updated_at = new Date().toISOString();
-      dataStore.usuarios.set(cpf, usuario);
-    }
+    const cpfLimpo = String(cpf || '').replace(/\D/g, '');
+    const userData = await buscarUsuarioPorCpf(cpfLimpo);
+    await atualizarDocumentoUsuario(userData, cpfLimpo, {
+      senha: hash,
+      updated_at: new Date().toISOString()
+    });
     console.log(`🔒 Senha migrada para bcrypt: ${cpf}`);
   } catch (error) {
     console.error(`⚠️ Erro ao migrar senha para bcrypt (${cpf}):`, error.message);
@@ -366,20 +364,42 @@ app.post('/api/mobile/auth', async (req, res) => {
   }
 });
 
-/** Usuário atual por CPF (cache RAM → Firestore). */
+/** Usuário atual por CPF (cache RAM → Firestore), preservando o `id` real do documento no Firestore. */
 async function buscarUsuarioPorCpf(cpf) {
   const cpfLimpo = String(cpf || '').replace(/\D/g, '');
   if (!cpfLimpo) return null;
   let usuario = dataStore.usuarios.get(cpfLimpo);
   if (!usuario) {
-    const found = getByFilter('usuarios', u => u.cpf === cpfLimpo);
+    const found = getByFilter('usuarios', u => String(u.cpf || '').replace(/\D/g, '') === cpfLimpo);
     if (found.length > 0) usuario = found[0];
   }
   if (!usuario) {
     const snapshot = await db.collection('usuarios').where('cpf', '==', cpfLimpo).limit(1).get();
-    if (!snapshot.empty) usuario = snapshot.docs[0].data();
+    if (!snapshot.empty) {
+      usuario = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+    }
   }
   return usuario || null;
+}
+
+/** Atualiza campos do documento de um usuário no Firestore (mesmo quando doc.id != cpf) e no cache RAM. */
+async function atualizarDocumentoUsuario(userData, cpfLimpo, campos) {
+  let docId = (userData && userData.id) || cpfLimpo;
+  try {
+    await db.collection('usuarios').doc(docId).update(campos);
+  } catch (err) {
+    // Fallback caso docId em cache não seja a chave do documento no Firestore
+    const snapshot = await db.collection('usuarios').where('cpf', '==', cpfLimpo).limit(1).get();
+    if (snapshot.empty) throw err;
+    docId = snapshot.docs[0].id;
+    await snapshot.docs[0].ref.update(campos);
+  }
+
+  const existing = dataStore.usuarios.get(docId) || userData;
+  if (existing) {
+    Object.assign(existing, campos, { id: docId });
+    dataStore.usuarios.set(docId, existing);
+  }
 }
 
 // ✅ RENOVAR JWT DO APP com o token de dispositivo (sem senha)
@@ -428,17 +448,10 @@ app.put('/api/mobile/perfil/senha', authMiddleware, async (req, res) => {
     const senhaHash = await bcrypt.hash(String(novaSenha).trim(), 10);
     const updatedAt = new Date().toISOString();
 
-    await db.collection('usuarios').doc(cpfLimpo).update({
+    await atualizarDocumentoUsuario(userData, cpfLimpo, {
       senha: senhaHash,
       updated_at: updatedAt,
     });
-
-    const existing = dataStore.usuarios.get(cpfLimpo);
-    if (existing) {
-      existing.senha = senhaHash;
-      existing.updated_at = updatedAt;
-      dataStore.usuarios.set(cpfLimpo, existing);
-    }
 
     res.json({ success: true, message: 'Senha alterada com sucesso!' });
   } catch (error) {
@@ -947,8 +960,9 @@ app.put('/api/usuarios/:cpf', authMiddleware, requireAdmin, async (req, res) => 
     const { nome, senha, perfil, ativo } = req.body;
 
     const cpfLimpo = String(cpf).replace(/\D/g, '');
-    
-    if (!dataStore.usuarios.has(cpfLimpo)) {
+    const userData = await buscarUsuarioPorCpf(cpfLimpo);
+
+    if (!userData) {
       return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
     }
 
@@ -964,14 +978,7 @@ app.put('/api/usuarios/:cpf', authMiddleware, requireAdmin, async (req, res) => 
       updateData.senha = await bcrypt.hash(senha, 10);
     }
 
-    await db.collection('usuarios').doc(cpfLimpo).update(updateData);
-    
-    // Atualiza cache RAM
-    const existing = dataStore.usuarios.get(cpfLimpo);
-    if (existing) {
-      Object.assign(existing, updateData);
-      dataStore.usuarios.set(cpfLimpo, existing);
-    }
+    await atualizarDocumentoUsuario(userData, cpfLimpo, updateData);
 
     res.json({ success: true, message: 'Usuário atualizado com sucesso!' });
   } catch (error) {
@@ -985,10 +992,13 @@ app.delete('/api/usuarios/:cpf', authMiddleware, requireAdmin, async (req, res) 
   try {
     const { cpf } = req.params;
     const cpfLimpo = String(cpf).replace(/\D/g, '');
+    const userData = await buscarUsuarioPorCpf(cpfLimpo);
+    const docId = (userData && userData.id) || cpfLimpo;
 
-    await db.collection('usuarios').doc(cpfLimpo).delete();
+    await db.collection('usuarios').doc(docId).delete();
     
     // Remove do cache RAM
+    dataStore.usuarios.delete(docId);
     dataStore.usuarios.delete(cpfLimpo);
 
     // Celulares desse usuário não renovam mais o acesso
