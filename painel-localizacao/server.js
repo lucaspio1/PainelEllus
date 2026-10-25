@@ -399,6 +399,54 @@ app.post('/api/mobile/auth/refresh', async (req, res) => {
   }
 });
 
+// ✅ ALTERAR PRÓPRIA SENHA no App Mobile (qualquer usuário autenticado)
+app.put('/api/mobile/perfil/senha', authMiddleware, async (req, res) => {
+  try {
+    const { senhaAtual, novaSenha } = req.body || {};
+    const cpfLimpo = String((req.user && req.user.cpf) || '').replace(/\D/g, '');
+
+    if (!cpfLimpo) {
+      return res.status(401).json({ success: false, message: 'Usuário não identificado.' });
+    }
+    if (!senhaAtual || !novaSenha) {
+      return res.status(400).json({ success: false, message: 'Informe a senha atual e a nova senha.' });
+    }
+    if (String(novaSenha).trim().length < 4) {
+      return res.status(400).json({ success: false, message: 'A nova senha deve ter pelo menos 4 caracteres.' });
+    }
+
+    const userData = await buscarUsuarioPorCpf(cpfLimpo);
+    if (!userData) {
+      return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
+    }
+
+    const senhaCorreta = await verificarSenha(senhaAtual, userData.senha);
+    if (!senhaCorreta) {
+      return res.status(400).json({ success: false, message: 'A senha atual está incorreta.' });
+    }
+
+    const senhaHash = await bcrypt.hash(String(novaSenha).trim(), 10);
+    const updatedAt = new Date().toISOString();
+
+    await db.collection('usuarios').doc(cpfLimpo).update({
+      senha: senhaHash,
+      updated_at: updatedAt,
+    });
+
+    const existing = dataStore.usuarios.get(cpfLimpo);
+    if (existing) {
+      existing.senha = senhaHash;
+      existing.updated_at = updatedAt;
+      dataStore.usuarios.set(cpfLimpo, existing);
+    }
+
+    res.json({ success: true, message: 'Senha alterada com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao alterar senha mobile:', error);
+    res.status(500).json({ success: false, message: 'Erro ao alterar senha no servidor.' });
+  }
+});
+
 // ==========================================================
 // API — MOBILE SYNC (protegidas por authMiddleware)
 // ==========================================================
