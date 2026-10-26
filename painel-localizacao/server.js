@@ -355,7 +355,8 @@ app.post('/api/mobile/auth', async (req, res) => {
       user: { 
         nome: user.nome, 
         perfil: user.perfil, 
-        cpf: user.cpf
+        cpf: user.cpf,
+        precisa_trocar_senha: userData.precisa_trocar_senha !== false
       }
     });
   } catch (error) {
@@ -450,6 +451,7 @@ app.put('/api/mobile/perfil/senha', authMiddleware, async (req, res) => {
 
     await atualizarDocumentoUsuario(userData, cpfLimpo, {
       senha: senhaHash,
+      precisa_trocar_senha: false,
       updated_at: updatedAt,
     });
 
@@ -944,7 +946,8 @@ app.post('/api/usuarios', authMiddleware, requireAdmin, async (req, res) => {
       nome: nome.trim(),
       senha: senhaHash,
       perfil: perfil || 'USER',
-      ativo: ativo !== false
+      ativo: ativo !== false,
+      precisa_trocar_senha: true
     };
 
     await db.collection('usuarios').doc(cpfLimpo).set(userData);
@@ -982,6 +985,7 @@ app.put('/api/usuarios/:cpf', authMiddleware, requireAdmin, async (req, res) => 
     // Só atualiza senha se foi fornecida — sempre com bcrypt
     if (senha) {
       updateData.senha = await bcrypt.hash(senha, 10);
+      updateData.precisa_trocar_senha = true;
     }
 
     await atualizarDocumentoUsuario(userData, cpfLimpo, updateData);
