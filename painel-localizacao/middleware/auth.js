@@ -21,6 +21,7 @@ const authMiddleware = (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.warn(`⚠️ [Auth] Token ausente em ${req.method} ${req.originalUrl}`);
     return res.status(401).json({ error: 'Token ausente' });
   }
 
@@ -31,6 +32,19 @@ const authMiddleware = (req, res, next) => {
     req.user = decoded; // payload contendo: cpf, perfil, nome
     next();
   } catch (error) {
+    let usuarioInfo = 'desconhecido';
+    try {
+      const payload = jwt.decode(token);
+      if (payload && (payload.cpf || payload.nome)) {
+        usuarioInfo = `${payload.cpf || '?'}${payload.nome ? ` (${payload.nome})` : ''}`;
+      }
+    } catch (_) {}
+
+    if (error && error.name === 'TokenExpiredError') {
+      console.warn(`🔄 [Token Expirado] JWT de 12h venceu em ${req.method} ${req.originalUrl} — CPF: ${usuarioInfo} (aguardando auto-refresh do app)`);
+    } else {
+      console.warn(`⚠️ [Auth] Token inválido (${error ? error.message : 'erro'}) em ${req.method} ${req.originalUrl} — CPF: ${usuarioInfo}`);
+    }
     return res.status(401).json({ error: 'Token inválido ou expirado' });
   }
 };
@@ -44,6 +58,7 @@ const authMiddleware = (req, res, next) => {
  */
 const requireAdmin = (req, res, next) => {
   if (!req.user || req.user.perfil !== 'ADMIN') {
+    console.warn(`⛔ [Auth] Acesso restrito a ADMIN negado em ${req.method} ${req.originalUrl} — CPF: ${(req.user && req.user.cpf) || '?'} (${(req.user && req.user.nome) || '?'})`);
     return res.status(403).json({ error: 'Acesso restrito a administradores' });
   }
   next();

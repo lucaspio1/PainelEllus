@@ -257,14 +257,17 @@ app.post('/api/login', async (req, res) => {
     }
 
     if (!userData) {
+      console.warn(`⚠️ [Login Painel] Usuário não encontrado — CPF digitado: ${cpfLimpo || cpf || 'vazio'}`);
       return res.status(401).json({ success: false, message: 'Usuário não encontrado.' });
     }
     if (userData.ativo === false) {
+      console.warn(`⚠️ [Login Painel] Usuário desativado — CPF: ${cpfLimpo} (${userData.nome || 'sem nome'})`);
       return res.status(401).json({ success: false, message: 'Usuário desativado.' });
     }
 
     const senhaCorreta = await verificarSenha(senha, userData.senha);
     if (!senhaCorreta) {
+      console.warn(`⚠️ [Login Painel] Senha incorreta — CPF: ${cpfLimpo} (${userData.nome || 'sem nome'})`);
       return res.status(401).json({ success: false, message: 'Senha incorreta.' });
     }
 
@@ -279,6 +282,8 @@ app.post('/api/login', async (req, res) => {
       perfil: userData.perfil || 'ADMIN', 
       nome: userData.nome 
     });
+
+    console.log(`✅ [Login Painel] Login realizado — CPF: ${userData.cpf || cpfLimpo} (${userData.nome}) [${userData.perfil || 'ADMIN'}]`);
 
     res.json({ 
       success: true, 
@@ -320,14 +325,17 @@ app.post('/api/mobile/auth', async (req, res) => {
     }
 
     if (!userData) {
+      console.warn(`⚠️ [Login App] Usuário não encontrado — CPF digitado: ${cpfLimpo || cpf || 'vazio'}`);
       return res.status(401).json({ success: false, message: 'Usuário não encontrado.' });
     }
     if (userData.ativo === false) {
+      console.warn(`⚠️ [Login App] Usuário desativado — CPF: ${cpfLimpo} (${userData.nome || 'sem nome'})`);
       return res.status(401).json({ success: false, message: 'Usuário desativado.' });
     }
 
     const senhaCorreta = await verificarSenha(senha, userData.senha);
     if (!senhaCorreta) {
+      console.warn(`⚠️ [Login App] Senha incorreta — CPF: ${cpfLimpo} (${userData.nome || 'sem nome'})`);
       return res.status(401).json({ success: false, message: 'Senha incorreta.' });
     }
 
@@ -346,6 +354,9 @@ app.post('/api/mobile/auth', async (req, res) => {
     // Token de dispositivo: permite ao app renovar o JWT sem senha depois de
     // horas/dias offline (ver store/deviceTokens.js)
     const dispositivo = await emitirTokenDispositivo(db, user, { userAgent: req.headers['user-agent'] });
+    const exigeTroca = userData.precisa_trocar_senha !== false;
+
+    console.log(`✅ [Login App] Login realizado — CPF: ${user.cpf} (${user.nome})${exigeTroca ? ' [1º acesso: exigindo troca de senha]' : ''}`);
 
     res.json({ 
       success: true, 
@@ -356,7 +367,7 @@ app.post('/api/mobile/auth', async (req, res) => {
         nome: user.nome, 
         perfil: user.perfil, 
         cpf: user.cpf,
-        precisa_trocar_senha: userData.precisa_trocar_senha !== false
+        precisa_trocar_senha: exigeTroca
       }
     });
   } catch (error) {
@@ -409,10 +420,11 @@ app.post('/api/mobile/auth/refresh', async (req, res) => {
     const { refresh_token } = req.body || {};
     const resultado = await validarTokenDispositivo(db, refresh_token, buscarUsuarioPorCpf);
     if (!resultado.ok) {
-      console.warn(`🔒 Refresh recusado: ${resultado.motivo}`);
+      console.warn(`⚠️ [Refresh Token] Recusado: ${resultado.motivo}`);
       return res.status(401).json({ success: false, code: 'REFRESH_INVALIDO', message: resultado.motivo });
     }
     const token = generateToken(resultado.user);
+    console.log(`🔄 [Refresh Token] Sessão renovada automaticamente — CPF: ${resultado.user.cpf} (${resultado.user.nome || 'sem nome'})`);
     res.json({ success: true, token, user: resultado.user });
   } catch (error) {
     console.error('Erro refresh mobile:', error);
@@ -427,22 +439,27 @@ app.put('/api/mobile/perfil/senha', authMiddleware, async (req, res) => {
     const cpfLimpo = String((req.user && req.user.cpf) || '').replace(/\D/g, '');
 
     if (!cpfLimpo) {
+      console.warn('⚠️ [Troca de Senha] Usuário não identificado no token.');
       return res.status(401).json({ success: false, message: 'Usuário não identificado.' });
     }
     if (!senhaAtual || !novaSenha) {
+      console.warn(`⚠️ [Troca de Senha] Senha atual ou nova senha ausente — CPF: ${cpfLimpo}`);
       return res.status(400).json({ success: false, message: 'Informe a senha atual e a nova senha.' });
     }
     if (String(novaSenha).trim().length < 4) {
+      console.warn(`⚠️ [Troca de Senha] Nova senha muito curta — CPF: ${cpfLimpo}`);
       return res.status(400).json({ success: false, message: 'A nova senha deve ter pelo menos 4 caracteres.' });
     }
 
     const userData = await buscarUsuarioPorCpf(cpfLimpo);
     if (!userData) {
+      console.warn(`⚠️ [Troca de Senha] Usuário não encontrado — CPF: ${cpfLimpo}`);
       return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
     }
 
     const senhaCorreta = await verificarSenha(senhaAtual, userData.senha);
     if (!senhaCorreta) {
+      console.warn(`⚠️ [Troca de Senha] Senha atual incorreta — CPF: ${cpfLimpo} (${userData.nome || 'sem nome'})`);
       return res.status(400).json({ success: false, message: 'A senha atual está incorreta.' });
     }
 
@@ -454,6 +471,8 @@ app.put('/api/mobile/perfil/senha', authMiddleware, async (req, res) => {
       precisa_trocar_senha: false,
       updated_at: updatedAt,
     });
+
+    console.log(`🔒 [Troca de Senha] Senha alterada com sucesso — CPF: ${cpfLimpo} (${userData.nome || 'sem nome'})`);
 
     res.json({ success: true, message: 'Senha alterada com sucesso!' });
   } catch (error) {
