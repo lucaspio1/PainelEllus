@@ -18,7 +18,10 @@
 const { calcularEscopo } = require('./escopo');
 
 const COLECOES_DELTA = ['alunos', 'quartos', 'embarques', 'eventos'];
-const MARGEM_MS = Number(process.env.DELTA_MARGIN_MS || 5 * 60 * 1000);
+// Reduzido de 5 min para 30s: evita que o app mobile rebaixe dezenas de
+// documentos repetidos a cada clique durante o embarque, mantendo folga
+// suficiente para escritas concorrentes.
+const MARGEM_MS = Number(process.env.DELTA_MARGIN_MS || 30 * 1000);
 
 /** updated_at pode ser string ISO, Date ou Timestamp do Firestore. */
 function paraMillis(valor) {

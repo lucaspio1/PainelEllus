@@ -60,14 +60,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   carregar();
 
+  let socket = null;
   if (typeof io !== 'undefined') {
-    const socket = io();
+    socket = io();
     socket.on('dados_atualizados', (d) => {
       if (!d || ['embarques', 'importacao', 'viagens', 'exclusao_lote'].includes(d.tipo)) carregar(true);
     });
   }
-  // Rede de segurança caso o socket caia
-  setInterval(() => carregar(true), 60000);
+  // Rede de segurança apenas caso o socket não esteja conectado
+  setInterval(() => {
+    if (!socket || !socket.connected) carregar(true);
+  }, 60000);
 });
 
 function chaveViagem(v) { return `${String(v.colegio).trim().toUpperCase()}|${v.inicio}`; }
@@ -77,7 +80,11 @@ function viagensDoPeriodo() {
   const amanha = Ellus.hojeISO(1);
   if (estado.periodo === 'amanha') return viagens.filter(v => v.inicio === amanha);
   if (estado.periodo === 'escolher') return viagens.filter(v => chaveViagem(v) === estado.viagem);
-  return viagens.filter(v => v.inicio <= hoje && (!v.fim || hoje <= v.fim));
+  return viagens.filter(v => {
+    if (!v.inicio) return false;
+    const fim = v.fim || v.inicio;
+    return v.inicio <= hoje && hoje <= fim;
+  });
 }
 
 async function carregar(silencioso = false) {
@@ -117,13 +124,16 @@ function preencherSelectViagens() {
   const sel = el('selViagem');
   const hoje = Ellus.hojeISO();
   const ordenadas = viagens.slice().sort((a, b) => {
-    const aAtiva = a.inicio <= hoje && hoje <= a.fim;
-    const bAtiva = b.inicio <= hoje && hoje <= b.fim;
+    const aFim = a.fim || a.inicio;
+    const bFim = b.fim || b.inicio;
+    const aAtiva = Boolean(a.inicio && a.inicio <= hoje && hoje <= aFim);
+    const bAtiva = Boolean(b.inicio && b.inicio <= hoje && hoje <= bFim);
     if (aAtiva !== bAtiva) return aAtiva ? -1 : 1;
     return String(b.inicio).localeCompare(String(a.inicio));
   });
   sel.innerHTML = '<option value="">Selecione a viagem...</option>' + ordenadas.map(v => {
-    const ativa = v.inicio <= hoje && hoje <= v.fim;
+    const fim = v.fim || v.inicio;
+    const ativa = Boolean(v.inicio && v.inicio <= hoje && hoje <= fim);
     return `<option value="${esc(chaveViagem(v))}">${ativa ? '🟢 ' : ''}${esc(v.colegio)} — ${esc(Ellus.formatarData(v.inicio))} a ${esc(Ellus.formatarData(v.fim))} (${v.qtd_alunos})</option>`;
   }).join('');
   sel.value = estado.viagem || '';

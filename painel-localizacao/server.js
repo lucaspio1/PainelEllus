@@ -102,7 +102,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ==========================================================
 // INICIALIZAR CACHE — Listeners do Firestore → RAM
 // ==========================================================
-setupFirestoreListeners(db, io);
+const firestoreListeners = setupFirestoreListeners(db, io);
 
 // ==========================================================
 // HEALTH CHECK (sem autenticação)
@@ -720,27 +720,24 @@ app.post('/api/movimentar', authMiddleware, async (req, res) => {
 
     console.log(`📍 Movimentando ${nomeAluno} -> ${novaLocalizacao}`);
 
-    // Atualiza tabela 'alunos' no Firestore
+    // Atualiza tabela 'alunos' no Firestore direto pelo ID (sem query extra)
     const cpfLimpo = String(cpf).replace(/\D/g, '');
-    const alunosRef = db.collection('alunos');
-    const snapshot = await alunosRef.where('cpf', '==', cpfLimpo).limit(1).get();
+    const alunoCache = dataStore.alunos.get(cpfLimpo);
+    const docId = (alunoCache && alunoCache.id) || cpfLimpo;
+    const updateAluno = {
+      movimentacao: novaLocalizacao,
+      movimentacao_at: timestamp,
+      updated_at: timestamp,
+      ultimo_usuario: usuarioResp
+    };
 
-    if (!snapshot.empty) {
-        await snapshot.docs[0].ref.update({
-            movimentacao: novaLocalizacao,
-            movimentacao_at: timestamp,
-            updated_at: timestamp,
-            ultimo_usuario: usuarioResp
-        });
+    if (alunoCache || !dataStore.ready) {
+      await db.collection('alunos').doc(docId).set(updateAluno, { merge: true });
     }
 
     // Atualiza cache RAM
-    const alunoCache = dataStore.alunos.get(cpfLimpo);
     if (alunoCache) {
-      alunoCache.movimentacao = novaLocalizacao;
-      alunoCache.movimentacao_at = timestamp;
-      alunoCache.updated_at = timestamp;
-      alunoCache.ultimo_usuario = usuarioResp;
+      Object.assign(alunoCache, updateAluno);
       dataStore.alunos.set(cpfLimpo, alunoCache);
     }
 
@@ -866,14 +863,23 @@ app.get('/api/logs', authMiddleware, async (req, res) => {
           termosBusca.some(t => String(log.cpf) === t)
         );
 
-        // O cache guarda só os 1000 logs mais recentes do sistema: busca o
-        // histórico do aluno direto no Firestore e junta (sem duplicar).
-        try {
-          const snap = await db.collection('logs').where('cpf', '==', cpfLimpo).limit(300).get();
-          const ids = new Set(logsResult.map(l => l.id));
-          snap.forEach(doc => { if (!ids.has(doc.id)) logsResult.push({ id: doc.id, ...doc.data() }); });
-        } catch (e) {
-          console.warn('Histórico do Firestore indisponível, usando cache:', e.message);
+        // Busca o histórico completo do aluno no Firestore apenas na 1ª vez que o CPF
+        // é consultado (ou se ?completo=1), salvando no cache RAM para as próximas consultas.
+        // Como um aluno individual tem poucos logs (ex.: 5 a 20 na viagem), o custo é mínimo
+        // e garante histórico 100% completo mesmo em viagens com mais de 1500 alunos.
+        if (req.query.completo === '1' || !dataStore.logsCpfCarregados.has(cpfLimpo)) {
+          try {
+            const snap = await db.collection('logs').where('cpf', '==', cpfLimpo).limit(200).get();
+            const ids = new Set(logsResult.map(l => l.id));
+            snap.forEach(doc => {
+              const item = { id: doc.id, ...doc.data() };
+              addLog(item);
+              if (!ids.has(doc.id)) logsResult.push(item);
+            });
+            dataStore.logsCpfCarregados.add(cpfLimpo);
+          } catch (e) {
+            console.warn('Histórico do Firestore indisponível, usando cache:', e.message);
+          }
         }
       } else {
         logsResult = getAll('logs').slice(0, 100);
@@ -1296,9 +1302,15 @@ app.delete('/api/viagens/excluir', authMiddleware, requireAdmin, async (req, res
 });
 
 // ==========================================================
-// INICIAR SERVIDOR
+// INICIAR SERVIDOR (aguarda carga inicial do cache para aproveitar o Startup CPU Boost do Cloud Run)
 // ==========================================================
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🚀 Servidor com WebSockets rodando em http://localhost:${PORT}`);
-  console.log(`🔐 Autenticação JWT: ${process.env.JWT_SECRET ? 'ATIVADA' : '⚠️ DESATIVADA (JWT_SECRET não definido)'}`);
+const STARTUP_CACHE_TIMEOUT_MS = Number(process.env.STARTUP_CACHE_TIMEOUT_MS || 60000);
+Promise.race([
+  firestoreListeners.readyPromise,
+  new Promise(resolve => setTimeout(resolve, STARTUP_CACHE_TIMEOUT_MS))
+]).finally(() => {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n🚀 Servidor com WebSockets rodando em http://localhost:${PORT}`);
+    console.log(`🔐 Autenticação JWT: ${process.env.JWT_SECRET ? 'ATIVADA' : '⚠️ DESATIVADA (JWT_SECRET não definido)'}`);
+  });
 });

@@ -8,14 +8,19 @@ const { processUploadOperations } = require('../store/uploadProcessor');
 function fakeDb(initial = {}, { failPaths = [] } = {}) {
   const docs = new Map(Object.entries(initial)); // 'colecao/id' -> data
   let autoId = 0;
+  let getAllCalls = 0;
   const ref = (col, id) => ({ id, path: `${col}/${id}` });
   return {
     docs,
+    get getAllCalls() { return getAllCalls; },
     collection: (col) => ({ doc: (id) => ref(col, id || `auto${++autoId}`) }),
-    getAll: async (...refs) => refs.map(r => ({
-      exists: docs.has(r.path),
-      data: () => ({ ...docs.get(r.path) })
-    })),
+    getAll: async (...refs) => {
+      getAllCalls++;
+      return refs.map(r => ({
+        exists: docs.has(r.path),
+        data: () => ({ ...docs.get(r.path) })
+      }));
+    },
     batch: () => {
       const writes = [];
       return {
@@ -51,6 +56,24 @@ test('embarque offline é gravado com horário do evento', async () => {
   assert.strictEqual(doc.embarque_at, '2026-10-13T10:00:00.000Z');
   assert.strictEqual(doc.onibus, '2');
   assert.strictEqual(doc.idPasseio, 'P1'); // não foi apagado
+});
+
+test('quando cache RAM está pronto, não faz leitura db.getAll no Firestore', async () => {
+  const db = fakeDb({ 'embarques/111': { embarque: '', idPasseio: 'P1' } });
+  const dataStore = {
+    ready: true,
+    alunos: new Map(),
+    embarques: new Map([['111', { id: '111', cpf: '111', embarque: '', idPasseio: 'P1' }]])
+  };
+  const { results } = await processUploadOperations({
+    ...base(),
+    dataStore,
+    db,
+    operations: [{ id: 'outbox_ram', type: 'embarque', data: { cpf: '111', campo: 'embarque', valor: 'SIM', event_at: '2026-10-13T10:00:00.000Z', onibus: '2' } }]
+  });
+  assert.deepStrictEqual(results, [{ id: 'outbox_ram', status: 'ok' }]);
+  assert.strictEqual(db.getAllCalls, 0, 'não deve consultar db.getAll quando dataStore está pronto');
+  assert.strictEqual(db.docs.get('embarques/111').embarque, 'SIM');
 });
 
 test('evento antigo não sobrescreve evento mais novo', async () => {

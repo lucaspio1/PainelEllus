@@ -3,13 +3,16 @@
  * Todo o banco de dados do Firestore será mantido na RAM (~5MB).
  */
 
+const MAX_LOGS_RAM = Number(process.env.MAX_LOGS_RAM || 5000);
+
 const dataStore = {
   alunos: new Map(),
   quartos: new Map(),
   usuarios: new Map(),
   embarques: new Map(),
   eventos: new Map(),
-  logs: [], // Limite de 1000 entradas
+  logs: [], // Mantém até MAX_LOGS_RAM (5000) entradas em memória (~1 MB)
+  logsCpfCarregados: new Set(), // CPFs cujo histórico completo já foi consultado no Firestore
   // true quando o primeiro snapshot de cada coleção chegou do Firestore.
   // Antes disso o cache está vazio/incompleto (cold start) e o delta sync
   // não pode responder, senão o app avança o "since" e perde dados.
@@ -102,7 +105,7 @@ function stats() {
 }
 
 /**
- * Adiciona um log ao array de logs, mantendo no máximo 1000 entradas.
+ * Adiciona um log ao array de logs, mantendo no máximo MAX_LOGS_RAM entradas.
  * @param {Object} logDoc - Documento de log a ser adicionado.
  */
 function addLog(logDoc) {
@@ -116,8 +119,8 @@ function addLog(logDoc) {
     }
   }
   dataStore.logs.push(logDoc);
-  if (dataStore.logs.length > 1000) {
-    // Remove os mais antigos se passar de 1000
+  if (dataStore.logs.length > MAX_LOGS_RAM) {
+    // Remove os mais antigos se passar de MAX_LOGS_RAM
     dataStore.logs.shift();
   }
   dataStore.lastUpdate.logs = new Date().toISOString();
@@ -130,6 +133,7 @@ function addLog(logDoc) {
 function clearCollection(colecao) {
   if (colecao === 'logs') {
     dataStore.logs = [];
+    dataStore.logsCpfCarregados.clear();
   } else if (dataStore[colecao] instanceof Map) {
     dataStore[colecao].clear();
   }

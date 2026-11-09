@@ -12,6 +12,8 @@
  *   mais antigo (celular que ficou offline) não sobrescreve um mais novo.
  * - Logs têm ID determinístico (cpf + horário + tipo): reenviar o mesmo log
  *   (resposta perdida numa conexão ruim) não cria duplicata.
+ * - Consulta o cache em RAM (dataStore) antes de ir ao Firestore (db.getAll),
+ *   eliminando leituras desnecessárias a cada marcação de embarque/movimentação.
  */
 
 const CHUNK_SIZE = 200; // cada operação gera no máximo 2 escritas (limite do batch: 500)
@@ -53,6 +55,7 @@ function planLog(op, ctx) {
   const logData = {
     ...data,
     timestamp: data.timestamp || timestamp,
+    updated_at: timestamp,
     synced_from: 'mobile',
     synced_by: user.cpf
   };
@@ -98,6 +101,7 @@ function planMovimentacao(op, ctx) {
     onCommitted: () => {
       const aluno = dataStore.alunos.get(cpf);
       if (aluno) Object.assign(aluno, updateData);
+      if (dataStore.lastUpdate) dataStore.lastUpdate.alunos = timestamp;
     }
   };
 }
@@ -129,6 +133,10 @@ function planEmbedding(op, ctx) {
       if (aluno) Object.assign(aluno, embData);
       const embarque = dataStore.embarques.get(cpf);
       if (embarque) Object.assign(embarque, embarqueData);
+      if (dataStore.lastUpdate) {
+        dataStore.lastUpdate.alunos = timestamp;
+        dataStore.lastUpdate.embarques = timestamp;
+      }
     }
   };
 }
@@ -192,6 +200,7 @@ function planEmbarque(op, ctx) {
     onCommitted: () => {
       const embarque = dataStore.embarques.get(cpf);
       if (embarque) Object.assign(embarque, update);
+      if (dataStore.lastUpdate) dataStore.lastUpdate.embarques = timestamp;
     }
   };
 }
@@ -217,15 +226,43 @@ async function processUploadOperations({ db, dataStore, addLog, operations, user
   for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
     const chunk = operations.slice(i, i + CHUNK_SIZE);
 
-    // 1. Ler de uma vez os documentos que precisam existir
+    // 1. Resolver documentos necessários: usa o cache em RAM (dataStore) quando
+    // disponível para evitar leituras desnecessárias no Firestore a cada upload.
+    // Só consulta o Firestore (db.getAll) se o cache ainda não estiver pronto.
     const refsByKey = new Map();
+    const snaps = new Map();
     for (const op of chunk) {
       const cpf = cpfDigits((op && (op.data || op)).cpf);
       if (!cpf) continue;
-      if (op.type === 'movimentacao') refsByKey.set(`alunos/${cpf}`, db.collection('alunos').doc(cpf));
-      if (op.type === 'embarque') refsByKey.set(`embarques/${cpf}`, db.collection('embarques').doc(cpf));
+      if (op.type === 'movimentacao') {
+        const key = `alunos/${cpf}`;
+        if (!snaps.has(key) && !refsByKey.has(key)) {
+          const cached = dataStore && dataStore.alunos && dataStore.alunos.get(cpf);
+          const cacheReady = Boolean(dataStore && dataStore.ready && dataStore.ready.alunos);
+          if (cached) {
+            snaps.set(key, { exists: true, data: () => ({ ...cached }) });
+          } else if (cacheReady) {
+            snaps.set(key, { exists: false, data: () => undefined });
+          } else {
+            refsByKey.set(key, db.collection('alunos').doc(cpf));
+          }
+        }
+      }
+      if (op.type === 'embarque') {
+        const key = `embarques/${cpf}`;
+        if (!snaps.has(key) && !refsByKey.has(key)) {
+          const cached = dataStore && dataStore.embarques && dataStore.embarques.get(cpf);
+          const cacheReady = Boolean(dataStore && dataStore.ready && dataStore.ready.embarques);
+          if (cached) {
+            snaps.set(key, { exists: true, data: () => ({ ...cached }) });
+          } else if (cacheReady) {
+            snaps.set(key, { exists: false, data: () => undefined });
+          } else {
+            refsByKey.set(key, db.collection('embarques').doc(cpf));
+          }
+        }
+      }
     }
-    const snaps = new Map();
     if (refsByKey.size > 0) {
       const keys = [...refsByKey.keys()];
       const docs = await db.getAll(...keys.map(k => refsByKey.get(k)));
@@ -269,14 +306,12 @@ async function processUploadOperations({ db, dataStore, addLog, operations, user
       }
     }
 
-    for (const p of planned) {
-      const r = { id: p.id, status: p.status };
-      if (p.message) r.message = p.message;
-      results.push(r);
-    }
+    results.push(...planned.map(({ id, status, message }) => (
+      message ? { id, status, message } : { id, status }
+    )));
   }
 
   return { results, timestamp };
 }
 
-module.exports = { processUploadOperations, cpfDigits, isOlder, idDeterministicoLog };
+module.exports = { processUploadOperations, idDeterministicoLog, isOlder };
