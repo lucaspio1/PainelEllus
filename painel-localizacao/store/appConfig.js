@@ -35,7 +35,7 @@ const DEFAULT_APP_CONFIG = Object.freeze({
   sentry_traces_sample_rate: 0.2,
 
   // Lembrete de atualização de versão (NÃO bloqueante)
-  recommended_version: '5.2.1',
+  recommended_version: '5.3.0',
   update_message:
     'Há uma nova versão do aplicativo Embarque Ellus disponível com melhorias de estabilidade e reconhecimento facial. Atualize quando estiver conectado ao Wi-Fi.',
   store_url_android: '',
