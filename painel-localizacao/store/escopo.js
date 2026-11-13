@@ -15,6 +15,7 @@
  */
 const { normalizarDataISO } = require('./datas');
 const { completarAno } = require('./viagens');
+const { getAppConfig } = require('./appConfig');
 
 const DIAS_ANTES = Number(process.env.SYNC_DIAS_ANTES || 3);
 const DIAS_DEPOIS = Number(process.env.SYNC_DIAS_DEPOIS || 1);
@@ -38,7 +39,10 @@ function somarDias(iso, n) {
   return d.toISOString().slice(0, 10);
 }
 
-function janelaAtiva(now = new Date(), { diasAntes = DIAS_ANTES, diasDepois = DIAS_DEPOIS } = {}) {
+function janelaAtiva(now = new Date(), opts = {}) {
+  const cfg = getAppConfig();
+  const diasAntes = opts.diasAntes ?? cfg.sync_dias_antes ?? DIAS_ANTES;
+  const diasDepois = opts.diasDepois ?? cfg.sync_dias_depois ?? DIAS_DEPOIS;
   const hoje = hojeBrasil(now);
   return { hoje, de: somarDias(hoje, -diasDepois), ate: somarDias(hoje, diasAntes) };
 }
@@ -62,7 +66,7 @@ let memo = null;
  */
 function calcularEscopo(dataStore, now = new Date()) {
   const janela = janelaAtiva(now);
-  const assinatura = [janela.hoje, ...Object.keys(CAMPOS).map(c => (dataStore.lastUpdate || {})[c])].join('|');
+  const assinatura = [janela.hoje, janela.de, janela.ate, ...Object.keys(CAMPOS).map(c => (dataStore.lastUpdate || {})[c])].join('|');
   if (memo && memo.assinatura === assinatura && now.getTime() - memo.em < 30000) return memo.resultado;
 
   const porColecao = {};

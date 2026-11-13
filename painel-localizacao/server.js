@@ -20,6 +20,7 @@ const { normalizarDataISO, mesmaData, formatarDataBR } = require('./store/datas'
 const { listarViagens, planejarEdicao, planejarExclusao, aplicarEmLotes } = require('./store/viagens');
 const { planejarImportacao } = require('./store/importacao');
 const { emitirTokenDispositivo, validarTokenDispositivo, revogarDispositivosDoUsuario } = require('./store/deviceTokens');
+const { getAppConfig, resetAppConfig, carregarAppConfigFirestore, salvarAppConfigFirestore } = require('./store/appConfig');
 
 // [FIREBASE] Inicialização com suporte a múltiplos ambientes
 if (!admin.apps.length) {
@@ -103,6 +104,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // INICIALIZAR CACHE — Listeners do Firestore → RAM
 // ==========================================================
 const firestoreListeners = setupFirestoreListeners(db, io);
+carregarAppConfigFirestore(db);
 
 // ==========================================================
 // HEALTH CHECK (sem autenticação)
@@ -145,6 +147,7 @@ app.get('/importar', (req, res) => res.sendFile(path.join(__dirname, 'public', '
 app.get('/usuarios', (req, res) => res.sendFile(path.join(__dirname, 'public', 'usuarios.html')));
 app.get('/homelist', (req, res) => res.sendFile(path.join(__dirname, 'public', 'homelist.html')));
 app.get('/viagens', (req, res) => res.sendFile(path.join(__dirname, 'public', 'gerenciar-viagens.html')));
+app.get('/config-app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'config-app.html')));
 
 // ==========================================================
 // UTILITÁRIOS
@@ -511,11 +514,61 @@ app.get('/api/mobile/sync', authMiddleware, (req, res) => {
       serverTime: resultado.serverTime, 
       delta: resultado.delta,
       ...(resultado.escopo ? { escopo: resultado.escopo } : {}),
+      config: getAppConfig(),
       stats: stats()
     });
   } catch (error) {
     console.error('Erro sync delta:', error);
     res.status(500).json({ success: false, message: 'Erro na sincronização.' });
+  }
+});
+
+// ==========================================================
+// API — CONFIGURAÇÕES REMOTAS DO APLICATIVO (Painel + Mobile)
+// ==========================================================
+app.get('/api/config/app', authMiddleware, (req, res) => {
+  res.json({
+    success: true,
+    data: getAppConfig()
+  });
+});
+
+app.put('/api/config/app', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const autor = (req.user && (req.user.nome || req.user.cpf)) || 'admin';
+    const atualizado = await salvarAppConfigFirestore(db, req.body || {}, autor);
+    console.log(`⚙️ [AppConfig] Atualizada por [${autor}]`);
+    res.json({
+      success: true,
+      message: 'Configurações do aplicativo salvas com sucesso!',
+      data: atualizado
+    });
+  } catch (error) {
+    console.error('Erro ao salvar configurações do app:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao salvar configurações do aplicativo.'
+    });
+  }
+});
+
+app.post('/api/config/app/reset', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const autor = (req.user && (req.user.nome || req.user.cpf)) || 'admin';
+    const padrao = resetAppConfig();
+    const atualizado = await salvarAppConfigFirestore(db, padrao, autor);
+    console.log(`⚙️ [AppConfig] Restaurada para o padrão por [${autor}]`);
+    res.json({
+      success: true,
+      message: 'Configurações restauradas para os valores padrão!',
+      data: atualizado
+    });
+  } catch (error) {
+    console.error('Erro ao restaurar configurações do app:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao restaurar configurações padrão.'
+    });
   }
 });
 

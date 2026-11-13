@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configurações do Aplicativo - Ellus</title>
+  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    body { overflow-y: auto !important; height: auto !important; min-height: 100vh; }
+    .config-container { max-width: 1120px; margin: 20px auto 60px; padding: 0 20px; }
+    .config-banner {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-left: 5px solid var(--brand-dark-green);
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 20px;
+    }
+    .config-section {
+      background: #fff;
+      border-radius: 10px;
+      padding: 22px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+      border-top: 4px solid var(--brand-dark-green);
+    }
+    .config-section h3 {
+      color: var(--brand-dark-green);
+      font-size: 1.05rem;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+    }
+    .field-group { margin-bottom: 14px; }
+    .field-group label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.88rem;
+      color: #333;
+      margin-bottom: 4px;
+    }
+    .field-hint {
+      font-size: 0.78rem;
+      color: #666;
+      margin-top: 3px;
+      line-height: 1.35;
+    }
+    .field-group input[type="number"],
+    .field-group input[type="text"],
+    .field-group select,
+    .field-group textarea {
+      width: 100%;
+      padding: 9px 11px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 0.92rem;
+    }
+    .field-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #333;
+    }
+    .field-check input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--brand-dark-green);
+    }
+    .config-footer {
+      margin-top: 24px;
+      background: #fff;
+      padding: 16px 22px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .status-toast {
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      display: none;
+    }
+    .status-toast.ok { display: inline-block; background: #dcfce7; color: #166534; }
+    .status-toast.err { display: inline-block; background: #fee2e2; color: #991b1b; }
+  </style>
+</head>
+<body>
+  <header class="top-bar">
+    <div class="logo-area" onclick="window.location.href='/home'">
+      <i class="fas fa-arrow-left"></i> Voltar ao Menu
+    </div>
+    <div style="flex: 1; text-align: center;">
+      <span style="font-weight:bold; color:var(--brand-dark-green); font-size: 1.1rem;">
+        <i class="fas fa-sliders-h"></i> Configurações Remotas do Aplicativo
+      </span>
+    </div>
+    <div class="operator-area">
+      <span id="nomeOperador" class="operator-name">👋 Olá, Usuário</span>
+    </div>
+  </header>
+
+  <div class="config-container">
+    <div class="config-banner">
+      <div>
+        <strong><i class="fas fa-mobile-alt"></i> Atualização automática via Sync:</strong>
+        Os celulares recebem estas configurações automaticamente a cada ciclo de sincronização, sem precisar gerar nova versão nas lojas.
+        <div id="infoUltimaAtualizacao" style="font-size: 0.82rem; color: #555; margin-top: 4px;"></div>
+      </div>
+      <span id="statusToast" class="status-toast"></span>
+    </div>
+
+    <form id="formConfigApp" onsubmit="salvarConfiguracoes(event)">
+      <div class="config-grid">
+        <!-- 1. RECONHECIMENTO FACIAL & CÂMERA -->
+        <div class="config-section">
+          <h3><i class="fas fa-user-check"></i> Reconhecimento Facial & Câmera</h3>
+
+          <div class="field-group">
+            <label for="distance_threshold">Limiar de Distância L2 (distance_threshold)</label>
+            <input type="number" id="distance_threshold" step="0.01" min="0.50" max="1.40" required>
+            <div class="field-hint">Padrão: <strong>0.95</strong> (0.50 a 1.40). Menor = mais rígido (menos falsos positivos). Maior = mais tolerante em pouca luz.</div>
+          </div>
+
+          <div class="field-group">
+            <label for="enrollment_burst_count">Fotos por Cadastro em Rajada (1 toque)</label>
+            <input type="number" id="enrollment_burst_count" step="1" min="1" max="5" required>
+            <div class="field-hint">Padrão: <strong>3 fotos</strong> (1 a 5). Quantas fotos o app dispara automaticamente em 1 clique.</div>
+          </div>
+
+          <div class="field-group">
+            <label for="enrollment_burst_interval_ms">Intervalo entre Fotos da Rajada (ms)</label>
+            <input type="number" id="enrollment_burst_interval_ms" step="50" min="150" max="1500" required>
+            <div class="field-hint">Padrão: <strong>350 ms</strong> (150 a 1500 ms).</div>
+          </div>
+
+          <div class="field-group">
+            <label for="face_cache_ttl_minutes">Validade do Cache de Embeddings em RAM (min)</label>
+            <input type="number" id="face_cache_ttl_minutes" step="1" min="1" max="60" required>
+            <div class="field-hint">Padrão: <strong>5 min</strong> (1 a 60 min).</div>
+          </div>
+
+          <div class="field-group">
+            <label for="mlkit_min_face_size">Tamanho Mínimo da Face no ML Kit (0.01 a 0.30)</label>
+            <input type="number" id="mlkit_min_face_size" step="0.01" min="0.01" max="0.30" required>
+            <div class="field-hint">Padrão: <strong>0.05</strong>. Menor detecta rostos mais distantes.</div>
+          </div>
+
+          <div class="field-group">
+            <label for="jpeg_quality">Qualidade JPEG do Recorte 112x112 (60 a 100)</label>
+            <input type="number" id="jpeg_quality" step="1" min="60" max="100" required>
+            <div class="field-hint">Padrão: <strong>95</strong>.</div>
+          </div>
+
+          <div class="field-group">
+            <label for="camera_resolution">Resolução da Câmera</label>
+            <select id="camera_resolution">
+              <option value="medium">Média (medium — mais leve)</option>
+              <option value="high">Alta (high — padrão recomendado)</option>
+              <option value="veryHigh">Muito Alta (veryHigh)</option>
+            </select>
+          </div>
+
+          <label class="field-check">
+            <input type="checkbox" id="show_face_guide">
+            Exibir moldura guia oval na câmera
+          </label>
+
+          <label class="field-check">
+            <input type="checkbox" id="use_front_camera_recognition">
+            Abrir câmera frontal por padrão no Reconhecimento
+          </label>
+
+          <label class="field-check">
+            <input type="checkbox" id="use_front_camera_enrollment">
+            Abrir câmera frontal por padrão no Cadastro
+          </label>
+        </div>
+
+        <!-- 2. SINCRONIZAÇÃO, ESCOPO DE VIAGENS & QR CODE -->
+        <div class="config-section">
+          <h3><i class="fas fa-sync-alt"></i> Sincronização, Escopo & QR Code</h3>
+
+          <div class="field-group">
+            <label for="sync_interval_seconds">Intervalo de Sincronização Automática (segundos)</label>
+            <input type="number" id="sync_interval_seconds" step="5" min="15" max="600" required>
+            <div class="field-hint">Padrão: <strong>60 s</strong> (15 a 600 s).</div>
+          </div>
+
+          <div class="field-group">
+            <label for="sync_dias_antes">Janela de Viagens — Dias ANTES do Início</label>
+            <input type="number" id="sync_dias_antes" step="1" min="0" max="30" required>
+            <div class="field-hint">Padrão: <strong>3 dias</strong>. Aumente se quiser pré-cadastrar faciais de viagens que começam em mais dias.</div>
+          </div>
+
+          <div class="field-group">
+            <label for="sync_dias_depois">Janela de Viagens — Dias DEPOIS do Fim</label>
+            <input type="number" id="sync_dias_depois" step="1" min="0" max="15" required>
+            <div class="field-hint">Padrão: <strong>1 dia</strong> (folga para o retorno).</div>
+          </div>
+
+          <div class="field-group">
+            <label for="api_timeout_seconds">Timeout das Requisições de Rede (segundos)</label>
+            <input type="number" id="api_timeout_seconds" step="5" min="10" max="120" required>
+            <div class="field-hint">Padrão: <strong>30 s</strong> (10 a 120 s). Aumente em locais com sinal 3G/4G fraco.</div>
+          </div>
+
+          <div class="field-group">
+            <label for="sync_batch_size">Tamanho do Lote de Envio Offline (operações)</label>
+            <input type="number" id="sync_batch_size" step="5" min="10" max="200" required>
+            <div class="field-hint">Padrão: <strong>50</strong> (10 a 200).</div>
+          </div>
+
+          <div class="field-group">
+            <label for="qr_cooldown_seconds">Intervalo entre Leituras de QR Code (segundos)</label>
+            <input type="number" id="qr_cooldown_seconds" step="1" min="1" max="10" required>
+            <div class="field-hint">Padrão: <strong>2 s</strong> (1 a 10 s). Evita leitura duplicada acidental.</div>
+          </div>
+        </div>
+
+        <!-- 3. LEMBRETE DE VERSÃO (NÃO BLOQUEANTE) & MONITORAMENTO -->
+        <div class="config-section">
+          <h3><i class="fas fa-bell"></i> Lembrete de Versão & Monitoramento</h3>
+
+          <div class="field-group">
+            <label for="recommended_version">Versão Recomendada do App (ex.: 5.2.1)</label>
+            <input type="text" id="recommended_version" pattern="\d+\.\d+\.\d+" placeholder="5.2.1" required>
+            <div class="field-hint">
+              <strong>Não bloqueia o uso:</strong> celulares com versão inferior verão apenas um aviso dispensável no menu principal.
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="update_message">Mensagem do Lembrete de Atualização</label>
+            <textarea id="update_message" rows="3" maxlength="500"></textarea>
+          </div>
+
+          <div class="field-group">
+            <label for="store_url_android">Link de Atualização Android (Play Store)</label>
+            <input type="text" id="store_url_android" placeholder="https://play.google.com/store/apps/details?id=br.com.embarqueellus">
+          </div>
+
+          <div class="field-group">
+            <label for="store_url_ios">Link de Atualização iOS (App Store / Unlisted)</label>
+            <input type="text" id="store_url_ios" placeholder="https://apps.apple.com/...">
+          </div>
+
+          <hr style="border: none; border-top: 1px solid #eee; margin: 16px 0;">
+
+          <label class="field-check">
+            <input type="checkbox" id="sentry_facial_verbose_logs">
+            Ativar logs detalhados do reconhecimento facial no Sentry (modo diagnóstico)
+          </label>
+
+          <div class="field-group">
+            <label for="sentry_traces_sample_rate">Taxa de Amostragem de Performance no Sentry (0.0 a 1.0)</label>
+            <input type="number" id="sentry_traces_sample_rate" step="0.05" min="0" max="1" required>
+            <div class="field-hint">Padrão recomendado em produção: <strong>0.20</strong> (20%) para economizar cota do Sentry.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="config-footer">
+        <button type="button" class="btn btn-logout" onclick="restaurarPadrao()">
+          <i class="fas fa-undo"></i> Restaurar Valores Padrão
+        </button>
+        <div style="display: flex; gap: 10px;">
+          <button type="button" class="btn btn-secondary" onclick="carregarConfiguracoes()">
+            <i class="fas fa-sync"></i> Recarregar
+          </button>
+          <button type="submit" id="btnSalvarConfig" class="btn btn-primary">
+            <i class="fas fa-save"></i> Salvar Configurações
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <script src="config-app.js"></script>
+</body>
+</html>
