@@ -40,8 +40,34 @@ const AVANCO_CURSOR_MS = Number(process.env.LISTENER_CURSOR_AVANCO_MS || 2 * 60 
 const LOGS_JANELA_INICIAL_DIAS = Number(process.env.LOGS_JANELA_INICIAL_DIAS || 5);
 const LOGS_CARGA_INICIAL = Number(process.env.LOGS_CARGA_INICIAL || 3000);
 
+// Reinscrição após erro: backoff exponencial com jitter (evita que todos os
+// listeners reconectem no mesmo milissegundo e disputem o mesmo canal gRPC).
+const RETRY_BASE_MS = Number(process.env.LISTENER_RETRY_BASE_MS || 5000);
+const RETRY_MAX_MS = Number(process.env.LISTENER_RETRY_MAX_MS || 60000);
+const RETRY_JITTER_MS = Number(process.env.LISTENER_RETRY_JITTER_MS ?? 2000);
+
 const isoComFolga = () => new Date(Date.now() - FOLGA_CURSOR_MS).toISOString();
 const esperar = (ms) => new Promise(r => setTimeout(r, ms));
+
+/** Data do snapshot (relógio do servidor Firestore quando disponível). */
+function horaDoSnapshot(snapshot) {
+  try {
+    if (snapshot && snapshot.readTime && typeof snapshot.readTime.toDate === 'function') {
+      return snapshot.readTime.toDate().getTime();
+    }
+  } catch (_) { /* usa relógio local */ }
+  return Date.now();
+}
+
+/**
+ * Log estruturado para o Cloud Logging (aparece com a severidade correta,
+ * permitindo filtros `severity>=ERROR` e alertas).
+ */
+function logEstruturado(severity, message, extra = {}) {
+  const linha = JSON.stringify({ severity, message, componente: 'firestoreListeners', ...extra });
+  if (severity === 'ERROR' || severity === 'WARNING') console.error(linha);
+  else console.log(linha);
+}
 
 /**
  * Configura os listeners do Firestore para manter o cache em memória
@@ -77,6 +103,65 @@ function setupFirestoreListeners(db, io) {
     return anterior;
   }
 
+  // ------------------------------------------------------------------
+  // Reinscrição automática
+  // ------------------------------------------------------------------
+  // Último momento em que cada listener comprovadamente estava saudável
+  // (último snapshot recebido). Ao reconectar, o cursor volta até aqui, e não
+  // só "agora - folga": se a conexão ficou parada por vários minutos (CPU do
+  // Cloud Run congelada, rede), nenhuma escrita desse intervalo é perdida.
+  const ultimoSaudavel = new Map(); // nome -> epoch ms
+  const tentativas = new Map();     // nome -> nº de falhas seguidas
+  const retryTimers = new Map();    // nome -> timeout pendente
+
+  function marcarSaudavel(nome, snapshot) {
+    ultimoSaudavel.set(nome, horaDoSnapshot(snapshot));
+    const falhas = tentativas.get(nome) || 0;
+    if (falhas > 0) {
+      tentativas.delete(nome);
+      logEstruturado('NOTICE', `✅ Listener de ${nome} reconectado após ${falhas} falha(s)`, { listener: nome });
+    }
+  }
+
+  /** Cursor de retomada: último instante saudável menos a folga. */
+  function cursorRetomada(nome) {
+    const saudavel = ultimoSaudavel.get(nome);
+    const base = saudavel ? Math.min(saudavel, Date.now()) : Date.now();
+    return new Date(base - FOLGA_CURSOR_MS).toISOString();
+  }
+
+  /**
+   * Trata erro de um listener: cancela o stream morto e agenda UMA
+   * reinscrição com backoff exponencial + jitter.
+   */
+  function agendarReinscricao(nome, unsubscribeMorto, error, reabrir) {
+    try { unsubscribeMorto(); } catch (_) { /* já encerrado */ }
+    if (unsubscribes.get(nome) === unsubscribeMorto) unsubscribes.delete(nome);
+    if (encerrado) return;
+
+    const falhas = (tentativas.get(nome) || 0) + 1;
+    tentativas.set(nome, falhas);
+    const atraso = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (falhas - 1)) + Math.floor(Math.random() * RETRY_JITTER_MS);
+
+    logEstruturado('ERROR', `❌ Erro no listener de ${nome}: ${error && error.message}`, {
+      listener: nome,
+      codigo: error && error.code,
+      tentativa: falhas,
+      reinscricaoEmMs: atraso
+    });
+
+    if (retryTimers.has(nome)) clearTimeout(retryTimers.get(nome));
+    retryTimers.set(nome, setTimeout(() => {
+      retryTimers.delete(nome);
+      if (encerrado) return;
+      try {
+        reabrir();
+      } catch (e) {
+        agendarReinscricao(nome, () => {}, e, reabrir);
+      }
+    }, atraso));
+  }
+
   /** Aplica as mudanças de um snapshot no Map da coleção. */
   function aplicarMudancas(col, snapshot) {
     let alterados = 0;
@@ -104,20 +189,22 @@ function setupFirestoreListeners(db, io) {
       .where('updated_at', '>=', cursor)
       .onSnapshot((snapshot) => {
         const alterados = aplicarMudancas(col, snapshot);
+        marcarSaudavel(col, snapshot);
         if (primeiro) {
           primeiro = false;
           // A troca de listener (avanço do cursor) só cancela o anterior
           // depois que o novo já entregou o estado atual: sem janela cega.
+          // (Nunca cancela a si mesmo — acontecia no boot, quando o próprio
+          // listener já era o registrado.)
           const anterior = registrar(col, unsubscribe);
-          if (anterior) anterior();
+          if (anterior && anterior !== unsubscribe) anterior();
         }
         if (alterados > 0) {
           dataStore.lastUpdate[col] = new Date().toISOString();
           debouncedEmit(col);
         }
       }, (error) => {
-        console.error(`❌ Erro no listener incremental de ${col}: ${error.message}`);
-        if (!encerrado) setTimeout(() => abrirListenerIncremental(col, isoComFolga()), 10000);
+        agendarReinscricao(col, unsubscribe, error, () => abrirListenerIncremental(col, cursorRetomada(col)));
       });
     if (!unsubscribes.has(col)) unsubscribes.set(col, unsubscribe);
   }
@@ -134,6 +221,8 @@ function setupFirestoreListeners(db, io) {
         snap.forEach(doc => mapa.set(doc.id, { id: doc.id, ...doc.data() }));
         dataStore.lastUpdate[col] = new Date().toISOString();
         console.log(`📦 Carga inicial de ${col}: ${snap.size} docs em ${Date.now() - inicio} ms`);
+        // Saudável desde o instante do cursor (antes da leitura)
+        ultimoSaudavel.set(col, Date.parse(cursor) + FOLGA_CURSOR_MS);
         abrirListenerIncremental(col, cursor);
         dataStore.ready[col] = true;
         debouncedEmit(col);
@@ -158,8 +247,19 @@ function setupFirestoreListeners(db, io) {
           resolve();
         }
       };
+      let primeiro = true;
       const unsubscribe = db.collection(col).onSnapshot((snapshot) => {
-        aplicarMudancas(col, snapshot);
+        if (primeiro && dataStore.ready[col]) {
+          // Reinscrição: o primeiro snapshot traz a coleção inteira. Reconstrói
+          // o Map para descartar documentos apagados enquanto estava offline.
+          const mapa = dataStore[col];
+          mapa.clear();
+          snapshot.docs.forEach(doc => mapa.set(doc.id, { id: doc.id, ...doc.data() }));
+        } else {
+          aplicarMudancas(col, snapshot);
+        }
+        primeiro = false;
+        marcarSaudavel(col, snapshot);
         dataStore.lastUpdate[col] = new Date().toISOString();
         if (!dataStore.ready[col]) {
           dataStore.ready[col] = true;
@@ -168,9 +268,8 @@ function setupFirestoreListeners(db, io) {
         concluir();
         debouncedEmit(col);
       }, (error) => {
-        console.error(`❌ Erro no listener de ${col}: ${error.message}`);
         concluir();
-        if (!encerrado) setTimeout(() => abrirListenerCompleto(col), 10000);
+        agendarReinscricao(col, unsubscribe, error, () => abrirListenerCompleto(col));
       });
       registrar(col, unsubscribe);
     });
@@ -192,18 +291,18 @@ function setupFirestoreListeners(db, io) {
             alterados++;
           }
         });
+        marcarSaudavel('logs', snapshot);
         if (primeiro) {
           primeiro = false;
           const anterior = registrar('logs', unsubscribe);
-          if (anterior) anterior();
+          if (anterior && anterior !== unsubscribe) anterior();
         }
         if (alterados > 0) {
           dataStore.lastUpdate.logs = new Date().toISOString();
           debouncedEmit('logs');
         }
       }, (error) => {
-        console.error(`❌ Erro no listener incremental de logs: ${error.message}`);
-        if (!encerrado) setTimeout(() => abrirListenerIncrementalLogs(isoComFolga()), 10000);
+        agendarReinscricao('logs', unsubscribe, error, () => abrirListenerIncrementalLogs(cursorRetomada('logs')));
       });
     if (!unsubscribes.has('logs')) unsubscribes.set('logs', unsubscribe);
   }
@@ -224,6 +323,7 @@ function setupFirestoreListeners(db, io) {
       console.error(`❌ Falha na carga inicial de logs: ${error.message}`);
     }
     dataStore.ready.logs = true;
+    ultimoSaudavel.set('logs', Date.parse(cursor) + FOLGA_CURSOR_MS);
     abrirListenerIncrementalLogs(cursor);
   }
 
@@ -247,10 +347,12 @@ function setupFirestoreListeners(db, io) {
   // Avanço periódico do cursor: reconexões futuras releem só as últimas horas
   const avanco = setInterval(() => {
     const novoCursor = isoComFolga();
+    // Não avança listener que está aguardando reinscrição (a reinscrição usa o
+    // cursor do último instante saudável, que é mais seguro).
     COLECOES_INCREMENTAIS.forEach(col => {
-      if (dataStore.ready[col]) abrirListenerIncremental(col, novoCursor);
+      if (dataStore.ready[col] && !retryTimers.has(col)) abrirListenerIncremental(col, novoCursor);
     });
-    if (dataStore.ready.logs) abrirListenerIncrementalLogs(novoCursor);
+    if (dataStore.ready.logs && !retryTimers.has('logs')) abrirListenerIncrementalLogs(novoCursor);
   }, AVANCO_CURSOR_MS);
   if (avanco.unref) avanco.unref();
   timers.push(avanco);
@@ -260,6 +362,8 @@ function setupFirestoreListeners(db, io) {
     unsubscribe: () => {
       encerrado = true;
       timers.forEach(clearInterval);
+      retryTimers.forEach(clearTimeout);
+      retryTimers.clear();
       unsubscribes.forEach(unsub => unsub());
       unsubscribes.clear();
     }
