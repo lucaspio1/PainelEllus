@@ -145,11 +145,84 @@
     </div>
   </div>
 
+  <!-- Modal: alunos da viagem -->
+  <div id="modalAlunos" class="modal-overlay">
+    <div class="modal-box" style="max-width:1000px; width:95%;">
+      <div class="modal-header"><h3><i class="fas fa-users"></i> <span id="tituloAlunos">Alunos da viagem</span></h3><button class="btn-close" data-fechar>&times;</button></div>
+      <div class="modal-body">
+        <div class="form-field">
+          <input type="text" id="pesquisaAluno" class="form-input" placeholder="Buscar por nome, CPF, turma, ônibus ou quarto" autocomplete="off">
+        </div>
+        <div style="max-height:60vh; overflow:auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Aluno</th>
+                <th>Turma</th>
+                <th>Ônibus</th>
+                <th>ID passeio</th>
+                <th id="thQuartoAluno">Quarto</th>
+                <th>Embarque / Retorno</th>
+                <th class="acoes">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tabelaAlunosBody"></tbody>
+          </table>
+        </div>
+        <p class="muted" id="totalAlunosTexto" style="margin-top:8px;"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: editar aluno -->
+  <div id="modalEditarAluno" class="modal-overlay">
+    <div class="modal-box" style="max-width:520px;">
+      <div class="modal-header"><h3><i class="fas fa-user-pen"></i> Editar aluno</h3><button class="btn-close" data-voltar-alunos>&times;</button></div>
+      <form id="formEditarAluno">
+        <div class="modal-body">
+          <div class="form-field">
+            <label>CPF</label>
+            <input type="text" id="alunoCpf" disabled>
+            <small>O CPF identifica o aluno (e a facial no app). Para trocar, exclua e importe de novo.</small>
+          </div>
+          <div class="form-field">
+            <label for="alunoNome">Nome</label>
+            <input type="text" id="alunoNome" required>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label for="alunoTurma">Turma</label>
+              <input type="text" id="alunoTurma">
+            </div>
+            <div class="form-field">
+              <label for="alunoOnibus">Ônibus</label>
+              <input type="text" id="alunoOnibus">
+            </div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label for="alunoPasseio">ID do passeio</label>
+              <input type="text" id="alunoPasseio">
+            </div>
+            <div class="form-field" id="campoQuartoAluno">
+              <label for="alunoQuarto">Quarto</label>
+              <input type="text" id="alunoQuarto">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" data-voltar-alunos>Cancelar</button>
+          <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="loadingOverlay" class="loading-overlay hidden"><div class="spinner"></div><p id="loadingText">Processando...</p></div>
   <div id="toastContainer" class="toast-container"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="common.js?v=5"></script>
-  <script src="gerenciar.js?v=5"></script>
+  <script src="gerenciar.js?v=6"></script>
 </body>
 </html>

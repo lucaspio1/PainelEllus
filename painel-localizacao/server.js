@@ -17,7 +17,7 @@ const { setupFirestoreListeners } = require('./store/firestoreListeners');
 const { processUploadOperations } = require('./store/uploadProcessor');
 const { montarDelta } = require('./store/delta');
 const { normalizarDataISO, mesmaData, formatarDataBR } = require('./store/datas');
-const { listarViagens, planejarEdicao, planejarExclusao, aplicarEmLotes } = require('./store/viagens');
+const { listarViagens, planejarEdicao, planejarExclusao, listarAlunosDaViagem, planejarEdicaoAluno, planejarExclusaoAluno, aplicarEmLotes } = require('./store/viagens');
 const { planejarImportacao } = require('./store/importacao');
 const { emitirTokenDispositivo, validarTokenDispositivo, revogarDispositivosDoUsuario } = require('./store/deviceTokens');
 const { getAppConfig, resetAppConfig, carregarAppConfigFirestore, salvarAppConfigFirestore } = require('./store/appConfig');
@@ -1350,6 +1350,101 @@ app.delete('/api/viagens/excluir', authMiddleware, requireAdmin, async (req, res
     res.json({ success: true, removidos: plano.porColecao });
   } catch (e) {
     console.error('Erro ao excluir viagem:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ✅ ALUNOS DE UMA VIAGEM (Lê do cache RAM)
+app.get('/api/viagens/alunos', authMiddleware, (req, res) => {
+  try {
+    const { colegio, inicio } = req.query;
+    if (!colegio || !inicio) {
+      return res.status(400).json({ success: false, message: 'Informe colégio e data de início.' });
+    }
+    res.json({ success: true, data: listarAlunosDaViagem(dataStore, { colegio, inicio }) });
+  } catch (e) {
+    console.error('Erro ao listar alunos da viagem:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ✅ EDITAR UM ALUNO DA VIAGEM (nome, turma, ônibus, ID do passeio, quarto)
+app.put('/api/viagens/aluno', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const { colegio, inicio_viagem, cpf, novo, operador } = req.body || {};
+    if (!colegio || !inicio_viagem || !cpf) {
+      return res.status(400).json({ success: false, message: 'Informe a viagem (colégio e início) e o CPF do aluno.' });
+    }
+    const plano = planejarEdicaoAluno(dataStore, { colegio, inicio: inicio_viagem, cpf }, novo);
+    if (plano.erro) return res.status(400).json({ success: false, message: plano.erro });
+
+    await aplicarEmLotes(db, plano.escritas, (batch, op) =>
+      batch.set(db.collection(op.col).doc(op.id), op.data, { merge: true }));
+    plano.escritas.forEach(op => {
+      const doc = dataStore[op.col].get(op.id);
+      if (doc) Object.assign(doc, op.data);
+    });
+
+    const timestamp = new Date().toISOString();
+    const logRef = db.collection('logs').doc();
+    const logData = {
+      tipo: 'EDICAO_ALUNO',
+      cpf: String(cpf).replace(/\D/g, ''),
+      colegio,
+      inicio_viagem,
+      alteracoes: plano.mudancas,
+      operador: operadorDaRequisicao(req, operador),
+      timestamp
+    };
+    await logRef.set(logData);
+    addLog({ id: logRef.id, ...logData });
+
+    plano.escritas.forEach(op => { dataStore.lastUpdate[op.col] = timestamp; });
+    notificarAlteracao('alunos');
+    console.log(`✏️ Aluno editado: ${logData.cpf} (${colegio} ${inicio_viagem}) por ${logData.operador}`);
+
+    res.json({ success: true, message: 'Aluno atualizado.' });
+  } catch (e) {
+    console.error('Erro ao editar aluno:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ✅ EXCLUIR UM ALUNO DA VIAGEM (alunos, quartos e embarques)
+app.delete('/api/viagens/aluno', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const { colegio, inicio_viagem, cpf, operador } = req.body || {};
+    if (!colegio || !inicio_viagem || !cpf) {
+      return res.status(400).json({ success: false, message: 'Informe a viagem (colégio e início) e o CPF do aluno.' });
+    }
+    const plano = planejarExclusaoAluno(dataStore, { colegio, inicio: inicio_viagem, cpf });
+    if (plano.erro) return res.status(404).json({ success: false, message: plano.erro });
+
+    await aplicarEmLotes(db, plano.exclusoes, (batch, op) => batch.delete(db.collection(op.col).doc(op.id)));
+    plano.exclusoes.forEach(op => dataStore[op.col].delete(op.id));
+
+    const timestamp = new Date().toISOString();
+    const logRef = db.collection('logs').doc();
+    const logData = {
+      tipo: 'EXCLUSAO_ALUNO',
+      cpf: String(cpf).replace(/\D/g, ''),
+      nome: plano.nome || '',
+      colegio,
+      inicio_viagem,
+      colecoes: plano.exclusoes.map(op => op.col),
+      operador: operadorDaRequisicao(req, operador),
+      timestamp
+    };
+    await logRef.set(logData);
+    addLog({ id: logRef.id, ...logData });
+
+    plano.exclusoes.forEach(op => { dataStore.lastUpdate[op.col] = timestamp; });
+    notificarAlteracao('exclusao_aluno');
+    console.log(`🗑️ Aluno excluído: ${logData.cpf} (${colegio} ${inicio_viagem}) por ${logData.operador}`);
+
+    res.json({ success: true, message: `${plano.nome || 'Aluno'} removido da viagem.` });
+  } catch (e) {
+    console.error('Erro ao excluir aluno:', e);
     res.status(500).json({ success: false, message: e.message });
   }
 });

@@ -242,6 +242,114 @@ function planejarExclusao(dataStore, { colegio, inicio }) {
   return { exclusoes, porColecao: Object.fromEntries(Object.entries(docs).map(([c, l]) => [c, l.length])) };
 }
 
+// ----------------------------------------------------------------------------
+// Alunos de uma viagem (listar, editar e excluir um aluno)
+// O ID do documento é o CPF nas três coleções.
+// ----------------------------------------------------------------------------
+
+const limparCpf = (c) => String(c || '').replace(/\D/g, '');
+
+/** Documentos de UM aluno que pertencem à viagem (por coleção). */
+function docsDoAluno(dataStore, { colegio, inicio, cpf }) {
+  const id = limparCpf(cpf);
+  const resultado = {};
+  for (const col of Object.keys(CAMPOS)) {
+    const mapa = dataStore[col] instanceof Map ? dataStore[col] : new Map();
+    const doc = id ? mapa.get(id) : null;
+    resultado[col] = doc && pertenceAViagem(doc, col, colegio, inicio) ? doc : null;
+  }
+  return { id, docs: resultado };
+}
+
+/** Lista os alunos da viagem juntando alunos, quartos e embarques. */
+function listarAlunosDaViagem(dataStore, { colegio, inicio }) {
+  const docs = docsDaViagem(dataStore, colegio, inicio);
+  const porCpf = new Map();
+  const obter = (id) => {
+    if (!porCpf.has(id)) porCpf.set(id, { cpf: id, aluno: null, quarto: null, embarque: null });
+    return porCpf.get(id);
+  };
+  docs.alunos.forEach(({ id, doc }) => { obter(id).aluno = doc; });
+  docs.quartos.forEach(({ id, doc }) => { obter(id).quarto = doc; });
+  docs.embarques.forEach(({ id, doc }) => { obter(id).embarque = doc; });
+
+  return [...porCpf.values()].map(({ cpf, aluno, quarto, embarque }) => {
+    const a = aluno || {}, q = quarto || {}, e = embarque || {};
+    return {
+      cpf: a.cpf || e.cpf || q.cpf || cpf,
+      nome: limpar(a.nome || e.nome || q.nome_hospede) || '(sem nome)',
+      turma: limpar(a.turma || e.turma),
+      onibus: limpar(e.onibus),
+      idPasseio: limpar(e.idPasseio),
+      numero_quarto: limpar(q.numero_quarto),
+      embarque: limpar(e.embarque),
+      retorno: limpar(e.retorno),
+      facial_cadastrada: a.facial_cadastrada === true || e.facial_cadastrada === true,
+      movimentacao: limpar(a.movimentacao),
+      pernoite: a.facial === true || q.facial === true || e.facial === true,
+      colecoes: { alunos: !!aluno, quartos: !!quarto, embarques: !!embarque }
+    };
+  }).sort((x, y) => x.nome.localeCompare(y.nome, 'pt-BR'));
+}
+
+/**
+ * Planeja a edição de UM aluno da viagem.
+ * `novo`: { nome?, turma?, onibus?, idPasseio?, numero_quarto? } (só o que mudar)
+ */
+function planejarEdicaoAluno(dataStore, { colegio, inicio, cpf }, novo, { agoraISO = new Date().toISOString() } = {}) {
+  const { id, docs } = docsDoAluno(dataStore, { colegio, inicio, cpf });
+  if (!id || !Object.values(docs).some(Boolean)) return { erro: 'Aluno não encontrado nesta viagem.' };
+  if (!novo || typeof novo !== 'object') return { erro: 'Nada para alterar.' };
+
+  const mudancas = {};
+  if (novo.nome !== undefined) {
+    const n = limpar(novo.nome);
+    if (!n) return { erro: 'Informe o nome do aluno.' };
+    mudancas.nome = n;
+  }
+  for (const campo of ['turma', 'onibus', 'idPasseio', 'numero_quarto']) {
+    if (novo[campo] !== undefined) mudancas[campo] = limpar(novo[campo]);
+  }
+  if (Object.keys(mudancas).length === 0) return { erro: 'Nada para alterar.' };
+
+  const escritas = [];
+  if (docs.alunos) {
+    const data = {};
+    if (mudancas.nome !== undefined) data.nome = mudancas.nome;
+    if (mudancas.turma !== undefined) data.turma = mudancas.turma;
+    if (Object.keys(data).length) escritas.push({ col: 'alunos', id, data: { ...data, updated_at: agoraISO } });
+  }
+  if (docs.quartos) {
+    const data = {};
+    if (mudancas.nome !== undefined) data.nome_hospede = mudancas.nome;
+    if (mudancas.numero_quarto !== undefined) data.numero_quarto = mudancas.numero_quarto;
+    if (Object.keys(data).length) escritas.push({ col: 'quartos', id, data: { ...data, updated_at: agoraISO } });
+  }
+  if (docs.embarques) {
+    const data = {};
+    if (mudancas.nome !== undefined) data.nome = mudancas.nome;
+    if (mudancas.turma !== undefined) data.turma = mudancas.turma;
+    if (mudancas.onibus !== undefined) data.onibus = mudancas.onibus;
+    if (mudancas.idPasseio !== undefined) {
+      if (!mudancas.idPasseio) return { erro: 'Informe o ID do passeio.' };
+      data.idPasseio = mudancas.idPasseio;
+    }
+    if (Object.keys(data).length) escritas.push({ col: 'embarques', id, data: { ...data, updated_at: agoraISO } });
+  }
+  if (escritas.length === 0) return { erro: 'Nada para alterar.' };
+  return { escritas, mudancas };
+}
+
+/** Planeja a exclusão de UM aluno da viagem (alunos, quartos e embarques). */
+function planejarExclusaoAluno(dataStore, { colegio, inicio, cpf }) {
+  const { id, docs } = docsDoAluno(dataStore, { colegio, inicio, cpf });
+  const exclusoes = Object.entries(docs).filter(([, doc]) => doc).map(([col]) => ({ col, id }));
+  if (exclusoes.length === 0) return { erro: 'Aluno não encontrado nesta viagem.' };
+  const nome = limpar((docs.alunos && docs.alunos.nome) || (docs.embarques && docs.embarques.nome) ||
+    (docs.quartos && docs.quartos.nome_hospede));
+  return { exclusoes, nome };
+}
+
 /** Grava em lotes de até 450 operações (limite do Firestore: 500). */
 async function aplicarEmLotes(db, operacoes, aplicar) {
   for (let i = 0; i < operacoes.length; i += 450) {
@@ -255,6 +363,9 @@ module.exports = {
   listarViagens,
   planejarEdicao,
   planejarExclusao,
+  listarAlunosDaViagem,
+  planejarEdicaoAluno,
+  planejarExclusaoAluno,
   aplicarEmLotes,
   docsDaViagem,
   chaveViagem,
