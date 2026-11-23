@@ -21,6 +21,7 @@ const { listarViagens, planejarEdicao, planejarExclusao, listarAlunosDaViagem, p
 const { planejarImportacao } = require('./store/importacao');
 const { emitirTokenDispositivo, validarTokenDispositivo, revogarDispositivosDoUsuario } = require('./store/deviceTokens');
 const { getAppConfig, resetAppConfig, carregarAppConfigFirestore, salvarAppConfigFirestore } = require('./store/appConfig');
+const { listarPessoasControleQuartos } = require('./store/pessoas');
 
 // [FIREBASE] Inicialização com suporte a múltiplos ambientes
 if (!admin.apps.length) {
@@ -823,38 +824,11 @@ app.post('/api/movimentar', authMiddleware, async (req, res) => {
 app.get('/api/pessoas', authMiddleware, (req, res) => {
   try {
     console.log('⚡ Retornando /api/pessoas do CACHE em memória');
-    
-    // Filtra apenas alunos com facial === true
-    const quartosComFacial = getByFilter('quartos', q => q.facial === true);
-    const alunosComFacial = getByFilter('alunos', a => a.facial === true);
 
-    // Cria mapa de movimentações
-    const alunosPorCpf = new Map();
-    alunosComFacial.forEach(a => alunosPorCpf.set(a.cpf, a));
-
-    const pessoas = quartosComFacial.map(quarto => {
-      const aluno = alunosPorCpf.get(quarto.cpf) || {};
-      const movimentacao = aluno.movimentacao || 'QUARTO';
-      return {
-        id: quarto.id,
-        cpf: quarto.cpf,
-        nome: quarto.nome_hospede,
-        nome_hospede: quarto.nome_hospede,
-        colegio: quarto.colegio,
-        turma: quarto.turma || '',
-        quarto: quarto.numero_quarto,
-        numero_quarto: quarto.numero_quarto,
-        inicio_viagem: quarto.inicio_viagem,
-        fim_viagem: quarto.fim_viagem,
-        movimentacao: movimentacao,
-        // Quando mudou de lugar (app novo grava o horário real da leitura)
-        movimentacao_at: aluno.movimentacao_at || null,
-        ultimo_usuario: aluno.ultimo_usuario || '',
-        facial_cadastrada: aluno.facial_cadastrada === true,
-        turma_aluno: aluno.turma || '',
-        created_at: quarto.created_at,
-        updated_at: quarto.updated_at
-      };
+    const pessoas = listarPessoasControleQuartos({
+      quartos: getAll('quartos'),
+      alunos: getAll('alunos'),
+      usuarios: getAll('usuarios')
     });
 
     res.json({ success: true, data: pessoas });
