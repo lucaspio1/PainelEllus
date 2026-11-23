@@ -102,7 +102,10 @@
         <i class="fas fa-search"></i> Buscar Alunos
       </button>
       <button class="btn" style="background: #0f766e; color: white; margin-left: 8px;" onclick="abrirModalMapaCamas()">
-        <i class="fas fa-file-import"></i> Importar Mapa de Camas (CSV)
+        <i class="fas fa-file-import"></i> Importar Mapa de Camas (Excel/CSV)
+      </button>
+      <button class="btn btn-outline" style="margin-left: 8px; border-color: #0f766e; color: #0f766e;" onclick="baixarModeloMapaCamas()" title="Baixar planilha padrão (.xlsx) do Mapa de Camas">
+        <i class="fas fa-download"></i> Baixar Modelo
       </button>
     </div>
 
@@ -189,22 +192,36 @@
   <div id="modalMapaCamas" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:2000; align-items:center; justify-content:center; padding:16px;">
     <div style="background:white; border-radius:10px; max-width:1100px; width:100%; max-height:92vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.3);">
       <div style="padding:16px 20px; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="margin:0; color:var(--brand-dark-green);"><i class="fas fa-bed"></i> Importar Mapa de Camas (CSV)</h3>
+        <h3 style="margin:0; color:var(--brand-dark-green);"><i class="fas fa-bed"></i> Importar Mapa de Camas (Excel / CSV)</h3>
         <button onclick="fecharModalMapaCamas()" style="background:none; border:none; font-size:1.4rem; cursor:pointer; color:#666;">&times;</button>
       </div>
       <div style="padding:16px 20px; overflow-y:auto; flex:1;">
         <p style="margin-top:0; color:#555; font-size:0.9rem;">
-          Cole o conteúdo CSV do mapa de camas abaixo (ou escolha um arquivo <code>.csv</code>). O sistema identifica as datas, cruza os nomes com os alunos dessas viagens e usa o colégio do próprio quarto para resolver nomes curtos (ex.: apenas o primeiro nome).
+          Escolha um arquivo <code>.xlsx</code>, <code>.xls</code> ou <code>.csv</code> no modelo padrão (ou cole os dados abaixo). Se a planilha não tiver linha de datas, o sistema usa a viagem/datas selecionadas na tela.
         </p>
         <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
           <input type="file" id="mapaCsvArquivo" accept=".xlsx,.xls,.csv,.txt" onchange="carregarArquivoMapaCsv(this)">
           <button class="btn btn-primary" onclick="analisarMapaCamas()">
             <i class="fas fa-wand-magic-sparkles"></i> Analisar e Cruzar Nomes
           </button>
+          <button class="btn btn-outline" style="border-color: #0f766e; color: #0f766e;" onclick="baixarModeloMapaCamas()">
+            <i class="fas fa-download"></i> Baixar Modelo (.xlsx)
+          </button>
         </div>
-        <textarea id="mapaCsvTexto" rows="6" placeholder="Cole aqui as linhas do CSV do mapa de camas..." style="width:100%; font-family:monospace; font-size:0.82rem; padding:10px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;"></textarea>
+        <textarea id="mapaCsvTexto" rows="6" placeholder="Escolha um arquivo Excel/CSV acima ou cole aqui as linhas do mapa de camas..." style="width:100%; font-family:monospace; font-size:0.82rem; padding:10px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;"></textarea>
 
-        <div id="mapaResumo" style="margin:12px 0; font-weight:600; font-size:0.92rem;"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin:12px 0;">
+          <div id="mapaResumo" style="font-weight:600; font-size:0.92rem;"></div>
+          <div id="mapaFiltros" style="display:none; gap:6px; align-items:center;">
+            <label for="mapaFiltroStatus" style="font-size:0.85rem; color:#555; font-weight:600;">Mostrar:</label>
+            <select id="mapaFiltroStatus" onchange="renderizarPreviewMapa()" style="padding:4px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:0.85rem;">
+              <option value="todos">Todos</option>
+              <option value="pendentes">Só pendentes (não achou / escolher)</option>
+              <option value="confirmados">Só confirmados</option>
+              <option value="ignorado">Só ignorados</option>
+            </select>
+          </div>
+        </div>
 
         <div id="mapaPreviewWrap" style="display:none; max-height:42vh; overflow:auto; border:1px solid #e5e7eb; border-radius:6px;">
           <table style="width:100%; border-collapse:collapse; font-size:0.86rem;">
@@ -236,7 +253,7 @@
   </div>
 
   <script src="common.js?v=5"></script>
-  <script src="homelistMapa.js?v=1"></script>
-  <script src="homelist.js?v=5"></script>
+  <script src="homelistMapa.js?v=2"></script>
+  <script src="homelist.js?v=6"></script>
 </body>
 </html>

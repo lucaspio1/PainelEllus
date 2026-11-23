@@ -1,5 +1,13 @@
 /**
- * Parser e cruzamento de Mapa de Camas (CSV) para o Homelist.
+ * Parser e cruzamento de Mapa de Camas (Excel/CSV) para o Homelist.
+ * Formato padrão:
+ *   Col A: Aptos (número do quarto)
+ *   Col B: Pessoas (capacidade)
+ *   Col C: Configuração de camas / observações
+ *   Col D: COLÉGIO (na linha do quarto) e Nome do hóspede (nas linhas seguintes)
+ *   Col E: SEXO (na linha do quarto) ou observação/cargo (nas linhas seguintes)
+ *
+ * Mantém compatibilidade com o formato legado (Aptos | Pessoas | Nome lado a lado).
  * Funciona no navegador e em Node.js (testes unitários).
  */
 (function (root, factory) {
@@ -28,8 +36,22 @@
     return dedup.join(' ');
   }
 
-  function removerCargo(nomeNorm) {
-    return nomeNorm.replace(/^PROFESS+OR[A]?\s+/, '').trim();
+  /** Remove prefixos/sufixos de cargo (PROF, PROFESSOR, ACOMPANHANTE, etc.) antes de comparar nomes. */
+  function removerCargo(nomeBruto) {
+    const semSufixo = String(nomeBruto || '')
+      .replace(/\s*\(\s*(?:PROF(?:ESS+OR[A]?)?|M[ÃA]E\s+RESPONS[ÁA]VEL|ACOMPANHANTE)[^)]*\)/gi, ' ')
+      .replace(/\s*[-–—]\s*(?:PROF(?:ESS+OR[A]?)?|ACOMPANHANTE)\b.*$/gi, ' ')
+      .replace(/\s+PROF(?:ESS+OR[A]?)?$/gi, ' ');
+    const norm = normalizarNome(semSufixo);
+    return norm.replace(/^PROF(?:ESS+OR[A]?)?\s+/, '').trim();
+  }
+
+  function ehTextoProfessor(texto) {
+    const s = String(texto || '').trim();
+    if (!s) return false;
+    return /\bPROF(?:ESS+OR[A]?)?\b/i.test(s)
+      || /\bACOMPANHANTE\b/i.test(s)
+      || /\bM[ÃA]E\s+RESPONS[ÁA]VEL\b/i.test(s);
   }
 
   function distanciaLevenshtein(a, b) {
@@ -127,35 +149,116 @@
     return ',';
   }
 
+  /**
+   * Reconhece número de quarto (ex.: "1001", "7019", "102A") e corrige
+   * decimais gerados por arraste automático no Excel (ex.: "5204.33333333333" -> "5204").
+   */
+  function parsearNumeroQuarto(cel) {
+    const s = String(cel || '').trim();
+    if (!s) return null;
+    if (/^\d{2,6}[A-Za-z]?$/.test(s)) return s;
+    if (/^\d{2,6}\.\d+$/.test(s)) {
+      const arred = Math.round(Number(s));
+      if (Number.isFinite(arred) && arred >= 10) return String(arred);
+    }
+    return null;
+  }
+
+  function ehLinhaTotalAptos(cel) {
+    const s = String(cel || '').trim();
+    return /^\d+\s*aptos?$/i.test(s) || /^aptos?\s+\d+$/i.test(s);
+  }
+
+  function ehTextoCama(texto) {
+    const n = normalizarNome(texto);
+    if (!n) return false;
+    return /\bCAMAS?\b/.test(n)
+      || /^\d+\s*CAMAS?\b/.test(n)
+      || /\b(CASAL|SOLTEIRO|AUXILIAR(?:ES)?|COLCHAO|COLCHOES)\b/.test(n);
+  }
+
   function ehPlaceholderIgnorado(nome) {
     const n = normalizarNome(nome);
     if (!n) return true;
-    if (n === 'VAZIO' || n === 'LIVRE') return true;
-    if (/^\d+\s+CAMAS?\b/.test(n)) return true;
+    if (/^\d+$/.test(n)) return true;
+    if (n === 'VAZIO' || n === 'LIVRE' || n === 'VAGA LIVRE' || n === 'VAGA' || n === 'SEM QUARTO') return true;
+    if (/^\d+\s*CAMAS?\b/.test(n)) return true;
+    if (/^CAMA\s+(NO|NA|DO|DA|EXTRA)\b/.test(n)) return true;
+    if (/^(SEPARAR|COLOCAR|PEGAR|TIRAR)\s+(A\s+)?CAMA\b/.test(n)) return true;
+    if (/^COLC?OCAR\s+COLCHAO\b/.test(n) || /^COLCHAO\s+EXTRA\b/.test(n)) return true;
     return false;
   }
 
   function ehEquipe(nome) {
     const n = normalizarNome(nome);
-    return /^EQUIPE\b/.test(n);
+    return /^EQUIPE\b/.test(n) || n === 'ELLUS';
   }
 
   /**
-   * Lê o CSV do mapa de camas e devolve:
+   * Detecta se um bloco "Aptos | Pessoas" segue o formato padrão (Col D = Colégio/Nome)
+   * ou o formato legado (Col C = Nome diretamente).
+   */
+  function detectarEstiloGrupo(linhas, idxCabecalho, colApto, proximoColApto) {
+    // No formato legado lado a lado, o próximo grupo pode começar logo em colApto + 3
+    if (proximoColApto !== -1 && proximoColApto <= colApto + 3) {
+      return 'legado';
+    }
+
+    // Cabeçalho explícito "COLÉGIO" / "SEXO" na linha anterior ou na própria linha
+    for (let r = Math.max(0, idxCabecalho - 1); r <= idxCabecalho; r++) {
+      const row = linhas[r] || [];
+      if (/^col[eé]gio$/i.test(row[colApto + 3] || '') || /^sexo$/i.test(row[colApto + 4] || '')) {
+        return 'padrao';
+      }
+    }
+
+    // Inspeciona as primeiras linhas de dados do bloco
+    let scorePadrao = 0;
+    let scoreLegado = 0;
+    const limite = Math.min(linhas.length, idxCabecalho + 25);
+    for (let r = idxCabecalho + 1; r < limite; r++) {
+      const row = linhas[r] || [];
+      if (/^aptos?$/i.test(row[colApto] || '')) break;
+      const c0 = (row[colApto] || '').trim();
+      const c2 = (row[colApto + 2] || '').trim();
+      const c3 = (row[colApto + 3] || '').trim();
+
+      if (parsearNumeroQuarto(c0)) {
+        if (ehTextoCama(c2) && c3) scorePadrao += 2;
+        else if (c2 && !ehTextoCama(c2) && !c3) scoreLegado += 2;
+      } else if (!c0) {
+        if (c3 && (!c2 || ehTextoCama(c2))) scorePadrao += 2;
+        else if (c2 && !c3 && !ehTextoCama(c2)) scoreLegado += 2;
+      }
+    }
+
+    return scoreLegado > scorePadrao ? 'legado' : 'padrao';
+  }
+
+  /**
+   * Lê o CSV/planilha do mapa de camas e devolve:
    *  - blocos: lista única de períodos encontrados [{ key, inicio, fim, rotulo }]
-   *  - itens: [{ quarto, nome, inicio, fim, blocoKey, ehProfessor, ehEquipe }]
+   *  - itens: [{ quarto, nome, nomeNormalizado, colegioPlanilha, sexo, inicio, fim, blocoKey, ehProfessor, ehEquipe }]
    */
   function parsearMapaCamasCSV(texto) {
     const sep = detectarSeparador(texto);
     const linhas = String(texto || '').split(/\r?\n/).map(l => dividirLinhaCSV(l, sep));
 
-    let grupos = []; // [{ colApto, colNome }]
-    let quartosAtivos = [];
+    let grupos = []; // [{ colApto, colCama, colNome, colSexo, estilo }]
+    let quartosAtivos = []; // [{ quarto, colegio, sexo } | null]
     let blocoAtual = { key: 'padrao', inicio: '', fim: '', rotulo: 'Viagem selecionada' };
     const blocosMap = new Map();
     const itens = [];
 
-    for (const cells of linhas) {
+    for (let rowIdx = 0; rowIdx < linhas.length; rowIdx++) {
+      const cells = linhas[rowIdx];
+
+      // Linha totalmente em branco encerra o quarto ativo (evita que anotações finais vazem para o último quarto)
+      if (cells.every(c => !c)) {
+        quartosAtivos = quartosAtivos.map(() => null);
+        continue;
+      }
+
       // Verifica se há cabeçalho de período em qualquer célula da linha
       let periodoLinha = null;
       for (const c of cells) {
@@ -171,56 +274,91 @@
       }
 
       // Verifica se é linha de cabeçalho "Aptos | Pessoas"
-      const novosGrupos = [];
+      const posAptos = [];
       for (let i = 0; i < cells.length; i++) {
         if (/^aptos?$/i.test(cells[i]) && /^pessoas?$/i.test(cells[i + 1] || '')) {
-          novosGrupos.push({ colApto: i, colNome: i + 2 });
+          posAptos.push(i);
         }
       }
-      if (novosGrupos.length > 0) {
-        grupos = novosGrupos;
+      if (posAptos.length > 0) {
+        grupos = posAptos.map((colApto, idx) => {
+          const prox = idx + 1 < posAptos.length ? posAptos[idx + 1] : -1;
+          const estilo = detectarEstiloGrupo(linhas, rowIdx, colApto, prox);
+          return estilo === 'padrao'
+            ? { colApto, colCama: colApto + 2, colNome: colApto + 3, colSexo: colApto + 4, estilo }
+            : { colApto, colCama: -1, colNome: colApto + 2, colSexo: -1, estilo };
+        });
         quartosAtivos = grupos.map(() => null);
         continue;
       }
 
       // Fallback para CSV simples (Quarto, Nome) sem cabeçalho Aptos/Pessoas
       if (grupos.length === 0) {
-        const primeiroApto = cells.findIndex(c => /^\d{2,6}[A-Za-z]?$/.test(c));
+        const primeiroApto = cells.findIndex(c => parsearNumeroQuarto(c) !== null);
         if (primeiroApto !== -1) {
           const temPessoas = /^\d{1,2}$/.test(cells[primeiroApto + 1] || '');
-          grupos = [{ colApto: primeiroApto, colNome: primeiroApto + (temPessoas ? 2 : 1) }];
+          const temCamaECol = temPessoas && ehTextoCama(cells[primeiroApto + 2] || '') && Boolean(cells[primeiroApto + 3]);
+          if (temCamaECol) {
+            grupos = [{ colApto: primeiroApto, colCama: primeiroApto + 2, colNome: primeiroApto + 3, colSexo: primeiroApto + 4, estilo: 'padrao' }];
+          } else {
+            grupos = [{ colApto: primeiroApto, colCama: -1, colNome: primeiroApto + (temPessoas ? 2 : 1), colSexo: -1, estilo: 'legado' }];
+          }
           quartosAtivos = [null];
         } else {
           continue;
         }
       }
 
+      // Ignora anotações soltas marcadas explicitamente como "SEM QUARTO"
+      if (cells.some(c => /^sem\s+quarto$/i.test(c))) {
+        continue;
+      }
+
       for (let g = 0; g < grupos.length; g++) {
-        const { colApto, colNome } = grupos[g];
+        const { colApto, colNome, colSexo, estilo } = grupos[g];
         const celApto = (cells[colApto] || '').trim();
         const celNome = (cells[colNome] || '').trim();
 
-        if (/^\d+\s*aptos?$/i.test(celApto)) {
-          quartosAtivos[g] = null;
-          continue;
-        }
-        if (/^\d{2,6}[A-Za-z]?$/.test(celApto)) {
-          quartosAtivos[g] = celApto;
+        if (ehLinhaTotalAptos(celApto)) {
+          // Alguns arquivos colocam "10 aptos" na mesma linha do primeiro hóspede do último quarto (ex.: 6012).
+          // Só encerra o quarto ativo se não houver um hóspede válido nessa mesma linha.
+          if (!celNome || ehPlaceholderIgnorado(celNome)) {
+            quartosAtivos[g] = null;
+            continue;
+          }
         }
 
-        const quarto = quartosAtivos[g];
-        if (!quarto || !celNome || ehPlaceholderIgnorado(celNome)) continue;
+        const numQuarto = parsearNumeroQuarto(celApto);
+        if (numQuarto) {
+          if (estilo === 'padrao') {
+            // Na linha do quarto no formato padrão, Col D é o COLÉGIO e Col E é o SEXO
+            const colegioQuarto = celNome;
+            const sexoQuarto = colSexo >= 0 ? (cells[colSexo] || '').trim() : '';
+            quartosAtivos[g] = { quarto: numQuarto, colegio: colegioQuarto, sexo: sexoQuarto };
+            continue;
+          } else {
+            quartosAtivos[g] = { quarto: numQuarto, colegio: '', sexo: '' };
+          }
+        }
+
+        const ativo = quartosAtivos[g];
+        if (!ativo || !celNome || ehPlaceholderIgnorado(celNome)) continue;
 
         if (!blocosMap.has(blocoAtual.key)) blocosMap.set(blocoAtual.key, blocoAtual);
         const norm = normalizarNome(celNome);
+        const obsExtra = colSexo >= 0 ? `${cells[colSexo] || ''} ${cells[colSexo + 1] || ''}`.trim() : '';
+        const quartoDeProfs = /^PROFESS+OR(?:ES|AS)$/i.test(normalizarNome(ativo.colegio));
+
         itens.push({
-          quarto,
+          quarto: ativo.quarto,
           nome: celNome,
           nomeNormalizado: norm,
+          colegioPlanilha: ativo.colegio || '',
+          sexo: ativo.sexo || '',
           inicio: blocoAtual.inicio,
           fim: blocoAtual.fim,
           blocoKey: blocoAtual.key,
-          ehProfessor: /^PROFESS+OR[A]?\s+/.test(norm),
+          ehProfessor: quartoDeProfs || ehTextoProfessor(celNome) || ehTextoProfessor(obsExtra),
           ehEquipe: ehEquipe(celNome)
         });
       }
@@ -237,7 +375,7 @@
    * Trata: erro de digitação, palavra colada (DANIELAMARCON), abreviação/omissão de sobrenome do meio.
    */
   function pontuarCasamento(nomePlanilha, nomeAluno) {
-    const pSemCargo = removerCargo(normalizarNome(nomePlanilha));
+    const pSemCargo = removerCargo(nomePlanilha);
     const aNorm = normalizarNome(nomeAluno);
     if (!pSemCargo || !aNorm) return 0;
 
@@ -254,7 +392,7 @@
 
     // Similaridade token a token: cada token da planilha busca o melhor token do aluno
     let soma = 0;
-    let primeiroOk = similaridade(tokensP[0], tokensA[0]) >= 0.8;
+    const primeiroOk = similaridade(tokensP[0], tokensA[0]) >= 0.8;
     for (const tp of tokensP) {
       let melhor = 0;
       for (const ta of tokensA) {
@@ -274,27 +412,72 @@
     for (const a of (alunos || [])) {
       const cpf = String(a.cpf || '').replace(/\D/g, '');
       if (!cpf || porCpf.has(cpf)) continue;
+      const norm = normalizarNome(a.nome || a.nome_hospede || '');
       porCpf.set(cpf, {
         ...a,
         cpf,
-        _norm: normalizarNome(a.nome || a.nome_hospede || '')
+        _norm: norm,
+        _noSpace: norm.replace(/\s+/g, ''),
+        _colegioNorm: normalizarNome(a.colegio || '')
       });
     }
-    return Array.from(porCpf.values());
+    const lista = Array.from(porCpf.values());
+    const porNorm = new Map();
+    const porNoSpace = new Map();
+    for (const a of lista) {
+      if (!a._norm) continue;
+      if (!porNorm.has(a._norm)) porNorm.set(a._norm, []);
+      porNorm.get(a._norm).push(a);
+      if (!porNoSpace.has(a._noSpace)) porNoSpace.set(a._noSpace, []);
+      porNoSpace.get(a._noSpace).push(a);
+    }
+    return { lista, porNorm, porNoSpace };
+  }
+
+  /** Tenta encontrar o nome real do colégio no sistema a partir do texto da coluna COLÉGIO da planilha. */
+  function encontrarColegioSistema(colegioPlanilha, listaAlunos) {
+    const alvo = normalizarNome(colegioPlanilha);
+    if (!alvo || /^PROFESS+OR/.test(alvo) || alvo === 'ELLUS') return null;
+
+    const colegiosUnicos = new Map();
+    for (const a of listaAlunos) {
+      if (a.colegio && !colegiosUnicos.has(a.colegio)) {
+        colegiosUnicos.set(a.colegio, a._colegioNorm);
+      }
+    }
+
+    let melhorCol = null;
+    let melhorScore = 0;
+    for (const [colReal, colNorm] of colegiosUnicos.entries()) {
+      if (!colNorm) continue;
+      if (colNorm === alvo) return colReal;
+      let score = 0;
+      if (colNorm.includes(alvo) || alvo.includes(colNorm)) {
+        score = 0.85;
+      } else {
+        score = similaridade(alvo, colNorm);
+      }
+      if (score > melhorScore) {
+        melhorScore = score;
+        melhorCol = colReal;
+      }
+    }
+    return melhorScore >= 0.65 ? melhorCol : null;
   }
 
   /**
    * Cruza os itens do mapa de camas com os alunos de cada bloco de datas.
    * Regra de desambiguação: quando um nome é só o primeiro nome (ex.: MIGUEL)
-   * ou dá empate, usa o colégio dos outros alunos já casados no mesmo quarto.
+   * ou dá empate, usa o colégio dos outros alunos já casados no mesmo quarto
+   * (ou, se não houver, a coluna COLÉGIO da própria planilha).
    *
    * @param {Array} itens - saída de parsearMapaCamasCSV().itens
    * @param {Object<string, Array>} alunosPorBloco - mapa blocoKey -> lista de alunos
    */
   function cruzarMapaComAlunos(itens, alunosPorBloco) {
-    const candidatosPorBloco = new Map();
+    const blocosIndex = new Map();
     for (const [k, lista] of Object.entries(alunosPorBloco || {})) {
-      candidatosPorBloco.set(k, prepararCandidatos(lista));
+      blocosIndex.set(k, prepararCandidatos(lista));
     }
 
     const resultados = itens.map((item) => {
@@ -302,8 +485,43 @@
         return { ...item, status: 'ignorado', motivo: 'Equipe / não é aluno', aluno: null, candidatos: [] };
       }
 
-      const lista = candidatosPorBloco.get(item.blocoKey) || [];
-      const ranqueados = lista
+      const idx = blocosIndex.get(item.blocoKey) || { lista: [], porNorm: new Map(), porNoSpace: new Map() };
+      const pSemCargo = removerCargo(item.nome);
+      if (!pSemCargo) {
+        return { ...item, status: 'nao_encontrado', motivo: 'Nome vazio', aluno: null, candidatos: [] };
+      }
+
+      // Caminho rápido O(1): nome exato único
+      const exatos = idx.porNorm.get(pSemCargo);
+      if (exatos && exatos.length === 1) {
+        return { ...item, status: 'exato', motivo: 'Nome exato', aluno: exatos[0], candidatos: [exatos[0]] };
+      }
+
+      // Caminho rápido O(1): nome exato sem espaços (ex.: DANIELAMARCON)
+      const semEspaco = pSemCargo.replace(/\s+/g, '');
+      const exatosNoSpace = idx.porNoSpace.get(semEspaco);
+      if (exatosNoSpace && exatosNoSpace.length === 1) {
+        return {
+          ...item,
+          status: 'aproximado',
+          motivo: 'Nome parecido (97%)',
+          aluno: exatosNoSpace[0],
+          candidatos: [exatosNoSpace[0]]
+        };
+      }
+
+      // Nome com apenas 1 palavra (ex.: "MIGUEL", "Gabriela", "Theo") fica para o passo 2
+      if (pSemCargo.indexOf(' ') === -1) {
+        return {
+          ...item,
+          status: 'nao_encontrado',
+          motivo: item.ehProfessor ? 'Professor (geralmente fora da lista de alunos)' : 'Aguardando verificação pelo quarto',
+          aluno: null,
+          candidatos: []
+        };
+      }
+
+      const ranqueados = idx.lista
         .map(a => ({ aluno: a, score: pontuarCasamento(item.nome, a._norm) }))
         .filter(r => r.score >= 0.65)
         .sort((a, b) => b.score - a.score);
@@ -334,6 +552,7 @@
     });
 
     // Passo 2: desambiguação pelo colégio dos outros ocupantes do mesmo quarto
+    // (ou pela coluna COLÉGIO da planilha quando nenhum colega casou ainda)
     const colegioPorQuarto = new Map();
     for (const r of resultados) {
       if (!r.aluno || !r.aluno.colegio) continue;
@@ -346,18 +565,25 @@
 
     for (const r of resultados) {
       if (r.aluno || r.status === 'ignorado') continue;
+      const idx = blocosIndex.get(r.blocoKey);
+      if (!idx) continue;
+
       const chave = `${r.blocoKey}::${r.quarto}`;
       const contagem = colegioPorQuarto.get(chave);
-      if (!contagem || contagem.size === 0) continue;
+      let colegioQuarto = null;
+      if (contagem && contagem.size > 0) {
+        colegioQuarto = Array.from(contagem.entries()).sort((a, b) => b[1] - a[1])[0][0];
+      } else if (r.colegioPlanilha) {
+        colegioQuarto = encontrarColegioSistema(r.colegioPlanilha, idx.lista);
+      }
+      if (!colegioQuarto) continue;
 
-      // Colégio majoritário do quarto
-      const colegioQuarto = Array.from(contagem.entries()).sort((a, b) => b[1] - a[1])[0][0];
-      const lista = (candidatosPorBloco.get(r.blocoKey) || []).filter(a => a.colegio === colegioQuarto);
-      const nomePlan = removerCargo(r.nomeNormalizado);
+      const lista = idx.lista.filter(a => a.colegio === colegioQuarto);
+      const nomePlan = removerCargo(r.nome);
       const tokens = nomePlan.split(' ').filter(Boolean);
       if (tokens.length === 0) continue;
 
-      // Se só tem 1 token (ex: "MIGUEL"), busca quem tem esse primeiro nome (ou contém o token) no colégio do quarto
+      // Se só tem 1 token (ex: "MIGUEL"), busca quem tem esse primeiro nome no colégio do quarto
       const compativeis = lista.filter(a => {
         const ta = a._norm.split(' ');
         if (tokens.length === 1) return ta[0] === tokens[0];
@@ -384,10 +610,40 @@
     return resultados;
   }
 
+  /**
+   * Retorna as linhas (matriz AOA) do modelo padrão oficial de Mapa de Camas (.xlsx).
+   */
+  function gerarLinhasModeloPadrao() {
+    return [
+      ['Standard', '', '', 'COLÉGIO', 'SEXO'],
+      ['Aptos', 'Pessoas', '', '', ''],
+      [1001, 2, '1 cama de casal.', 'EXEMPLO COLÉGIO A', 'F'],
+      ['', '', '', 'MARIA SILVA SOUZA', ''],
+      ['', '', '', 'ANA CLARA PEREIRA', ''],
+      [1002, 4, '2 cama de casal e 2 auxiliares.', 'EXEMPLO COLÉGIO A', 'F'],
+      ['', '', '', 'JULIA SANTOS OLIVEIRA', ''],
+      ['', '', '', 'LAURA COSTA LIMA', ''],
+      ['', '', '', 'BEATRIZ ALMEIDA ROCHA', ''],
+      ['', '', '', 'VAGA LIVRE', ''],
+      ['2 aptos', 6, '', '', ''],
+      ['Luxo', '', '', '', ''],
+      ['Aptos', 'Pessoas', '', '', ''],
+      [2001, 4, '2 cama de casal.', 'EXEMPLO COLÉGIO B', 'M'],
+      ['', '', '', 'PEDRO HENRIQUE MARTINS', ''],
+      ['', '', '', 'LUCAS GABRIEL FERREIRA', ''],
+      ['', '', '', 'JOÃO VITOR RIBEIRO', ''],
+      ['', '', '', 'MATHEUS CARVALHO DIAS', ''],
+      ['1 apto', 4, '', '', '']
+    ];
+  }
+
   return {
     normalizarNome,
+    removerCargo,
+    parsearNumeroQuarto,
     extrairPeriodo,
     parsearMapaCamasCSV,
-    cruzarMapaComAlunos
+    cruzarMapaComAlunos,
+    gerarLinhasModeloPadrao
   };
 }));

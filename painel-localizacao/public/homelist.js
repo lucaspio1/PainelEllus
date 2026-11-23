@@ -522,10 +522,11 @@ function toggleLoading(show, text = 'Processando...') {
 }
 
 // =========================================================================
-// IMPORTADOR DE MAPA DE CAMAS (CSV)
+// IMPORTADOR DE MAPA DE CAMAS (EXCEL / CSV)
 // =========================================================================
 let mapaResultados = [];
 let mapaAlunosPorBloco = {};
+let mapaAlunosOrdenadosPorBloco = {};
 
 function abrirModalMapaCamas() {
     document.getElementById('modalMapaCamas').style.display = 'flex';
@@ -533,6 +534,41 @@ function abrirModalMapaCamas() {
 
 function fecharModalMapaCamas() {
     document.getElementById('modalMapaCamas').style.display = 'none';
+}
+
+function baixarModeloMapaCamas() {
+    const linhas = HomelistMapa.gerarLinhasModeloPadrao();
+    if (typeof XLSX !== 'undefined') {
+        const ws = XLSX.utils.aoa_to_sheet(linhas);
+        ws['!cols'] = [
+            { wch: 12 },
+            { wch: 10 },
+            { wch: 36 },
+            { wch: 42 },
+            { wch: 10 }
+        ];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Mapa de Camas');
+        XLSX.writeFile(wb, 'Modelo_Mapa_de_Camas_Ellus.xlsx');
+        return;
+    }
+
+    // Fallback CSV caso a biblioteca Excel não esteja disponível
+    const csv = '\uFEFF' + linhas
+        .map(row => row.map(v => {
+            const s = String(v ?? '');
+            return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        }).join(','))
+        .join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Modelo_Mapa_de_Camas_Ellus.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
 }
 
 function carregarArquivoMapaCsv(input) {
@@ -558,38 +594,51 @@ function carregarArquivoMapaCsv(input) {
 
 async function analisarMapaCamas() {
     const texto = document.getElementById('mapaCsvTexto').value.trim();
-    if (!texto) return alert('⚠️ Cole o conteúdo CSV ou escolha um arquivo.');
+    if (!texto) return alert('⚠️ Escolha um arquivo Excel/CSV ou cole o conteúdo da planilha.');
 
     const { blocos, itens } = HomelistMapa.parsearMapaCamasCSV(texto);
     if (itens.length === 0) {
-        return alert('⚠️ Nenhum quarto/hóspede reconhecido no CSV.');
+        return alert('⚠️ Nenhum quarto/hóspede reconhecido na planilha.');
     }
 
-    // Se o CSV não tiver cabeçalho de datas, usa os filtros da tela
+    // Se a planilha não tiver cabeçalho de datas, usa os filtros da tela
     const inicioTela = document.getElementById('filterInicio').value;
     const fimTela = document.getElementById('filterFim').value;
     for (const b of blocos) {
         if (b.key === 'padrao') {
-            if (!inicioTela) return alert('⚠️ O CSV não tem linha de datas e a Data Início da tela está vazia.');
+            if (!inicioTela) return alert('⚠️ A planilha não tem linha de datas e a Data Início da tela está vazia.\n\nSelecione a viagem ou informe a Data Início na tela principal antes de analisar.');
             b.inicio = inicioTela;
             b.fim = fimTela;
+        }
+    }
+    for (const item of itens) {
+        if (item.blocoKey === 'padrao') {
+            item.inicio = inicioTela;
+            item.fim = fimTela;
         }
     }
 
     toggleLoading(true, 'Buscando alunos das viagens e cruzando nomes...');
     try {
         mapaAlunosPorBloco = {};
+        mapaAlunosOrdenadosPorBloco = {};
         await Promise.all(blocos.map(async (b) => {
             let url = `/api/embarque-lista?inicio=${encodeURIComponent(b.inicio)}`;
             if (b.fim) url += `&fim=${encodeURIComponent(b.fim)}`;
             const res = await authFetch(url);
             const json = await res.json();
-            mapaAlunosPorBloco[b.key] = (json.status === 'sucesso' && Array.isArray(json.passageiros))
+            const lista = (json.status === 'sucesso' && Array.isArray(json.passageiros))
                 ? json.passageiros
                 : [];
+            mapaAlunosPorBloco[b.key] = lista;
+            mapaAlunosOrdenadosPorBloco[b.key] = lista
+                .slice()
+                .sort((a, b2) => String(a.nome || '').localeCompare(String(b2.nome || ''), 'pt-BR'));
         }));
 
         mapaResultados = HomelistMapa.cruzarMapaComAlunos(itens, mapaAlunosPorBloco);
+        const filtroEl = document.getElementById('mapaFiltroStatus');
+        if (filtroEl) filtroEl.value = 'todos';
         renderizarPreviewMapa();
     } catch (e) {
         console.error('Erro ao analisar mapa:', e);
@@ -599,10 +648,35 @@ async function analisarMapaCamas() {
     }
 }
 
+function carregarTodasOpcoesMapa(selectEl, idx) {
+    if (!selectEl || selectEl.dataset.carregado === '1') return;
+    selectEl.dataset.carregado = '1';
+    const r = mapaResultados[idx];
+    if (!r) return;
+
+    const existentes = new Set(Array.from(selectEl.options).map(o => o.value));
+    const blocoAlunos = mapaAlunosOrdenadosPorBloco[r.blocoKey] || [];
+    const frag = document.createDocumentFragment();
+    for (const a of blocoAlunos) {
+        const cpf = String(a.cpf || '').replace(/\D/g, '');
+        if (!cpf || existentes.has(cpf)) continue;
+        existentes.add(cpf);
+        const opt = document.createElement('option');
+        opt.value = cpf;
+        opt.textContent = `${a.nome || a.nome_hospede || cpf} · ${a.colegio || ''}`;
+        frag.appendChild(opt);
+    }
+    selectEl.appendChild(frag);
+}
+
 function renderizarPreviewMapa() {
     const tbody = document.getElementById('mapaTabelaBody');
     const wrap = document.getElementById('mapaPreviewWrap');
+    const filtrosWrap = document.getElementById('mapaFiltros');
     wrap.style.display = 'block';
+    if (filtrosWrap) filtrosWrap.style.display = 'flex';
+
+    const filtroStatus = (document.getElementById('mapaFiltroStatus') || {}).value || 'todos';
 
     const badges = {
         exato: '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:10px;font-weight:600;">✅ Exato</span>',
@@ -613,10 +687,16 @@ function renderizarPreviewMapa() {
         ignorado: '<span style="background:#f3f4f6;color:#4b5563;padding:2px 8px;border-radius:10px;font-weight:600;">⏭️ Ignorar</span>'
     };
 
-    tbody.innerHTML = mapaResultados.map((r, idx) => {
-        const blocoAlunos = (mapaAlunosPorBloco[r.blocoKey] || [])
-            .slice()
-            .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || '')));
+    const linhasHtml = [];
+    for (let idx = 0; idx < mapaResultados.length; idx++) {
+        const r = mapaResultados[idx];
+        const confirmado = Boolean(r.aluno && r.aluno.cpf);
+        const pendente = !confirmado && r.status !== 'ignorado';
+        const ignorado = r.status === 'ignorado';
+
+        if (filtroStatus === 'pendentes' && !pendente) continue;
+        if (filtroStatus === 'confirmados' && !confirmado) continue;
+        if (filtroStatus === 'ignorado' && !ignorado) continue;
 
         const vistos = new Set();
         const opcoes = ['<option value="">-- Ignorar esta linha --</option>'];
@@ -629,22 +709,29 @@ function renderizarPreviewMapa() {
         };
         if (r.aluno) adicionarOpcao(r.aluno);
         (r.candidatos || []).forEach(c => adicionarOpcao(c, '★ '));
-        blocoAlunos.forEach(a => adicionarOpcao(a));
 
         const periodoTxt = r.inicio ? `${r.inicio.slice(8, 10)}/${r.inicio.slice(5, 7)}` : '-';
-        return `
+        const colPlanilhaHtml = r.colegioPlanilha
+            ? `<div style="font-size:0.74rem;color:#6b7280;">${esc(r.colegioPlanilha)}${r.sexo ? ` · ${esc(r.sexo)}` : ''}</div>`
+            : '';
+
+        linhasHtml.push(`
           <tr style="border-bottom:1px solid #f3f4f6;">
             <td style="padding:6px 8px;font-weight:700;">${esc(r.quarto)}</td>
             <td style="padding:6px 8px;color:#666;">${esc(periodoTxt)}</td>
-            <td style="padding:6px 8px;">${esc(r.nome)}</td>
+            <td style="padding:6px 8px;">${esc(r.nome)}${colPlanilhaHtml}</td>
             <td style="padding:6px 8px;">
-              <select onchange="alterarAlunoMapa(${idx}, this.value)" style="width:100%;max-width:360px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;">
+              <select data-carregado="0" onfocus="carregarTodasOpcoesMapa(this, ${idx})" onmousedown="carregarTodasOpcoesMapa(this, ${idx})" onchange="alterarAlunoMapa(${idx}, this.value)" style="width:100%;max-width:360px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;">
                 ${opcoes.join('')}
               </select>
             </td>
             <td style="padding:6px 8px;">${badges[r.status] || ''}<div style="font-size:0.75rem;color:#666;">${esc(r.motivo || '')}</div></td>
-          </tr>`;
-    }).join('');
+          </tr>`);
+    }
+
+    tbody.innerHTML = linhasHtml.length
+        ? linhasHtml.join('')
+        : '<tr><td colspan="5" style="padding:20px;text-align:center;color:#6b7280;">Nenhum registro neste filtro.</td></tr>';
 
     atualizarResumoMapa();
 }
