@@ -100,6 +100,9 @@
       <button class="btn btn-primary" onclick="buscarAlunos()">
         <i class="fas fa-search"></i> Buscar Alunos
       </button>
+      <button class="btn" style="background: #0f766e; color: white; margin-left: 8px;" onclick="abrirModalMapaCamas()">
+        <i class="fas fa-file-import"></i> Importar Mapa de Camas (CSV)
+      </button>
     </div>
 
     <!-- Grid Principal -->
@@ -182,12 +185,57 @@
 
   </div>
 
+  <div id="modalMapaCamas" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:2000; align-items:center; justify-content:center; padding:16px;">
+    <div style="background:white; border-radius:10px; max-width:1100px; width:100%; max-height:92vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.3);">
+      <div style="padding:16px 20px; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0; color:var(--brand-dark-green);"><i class="fas fa-bed"></i> Importar Mapa de Camas (CSV)</h3>
+        <button onclick="fecharModalMapaCamas()" style="background:none; border:none; font-size:1.4rem; cursor:pointer; color:#666;">&times;</button>
+      </div>
+      <div style="padding:16px 20px; overflow-y:auto; flex:1;">
+        <p style="margin-top:0; color:#555; font-size:0.9rem;">
+          Cole o conteúdo CSV do mapa de camas abaixo (ou escolha um arquivo <code>.csv</code>). O sistema identifica as datas, cruza os nomes com os alunos dessas viagens e usa o colégio do próprio quarto para resolver nomes curtos (ex.: apenas o primeiro nome).
+        </p>
+        <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+          <input type="file" id="mapaCsvArquivo" accept=".csv,.txt" onchange="carregarArquivoMapaCsv(this)">
+          <button class="btn btn-primary" onclick="analisarMapaCamas()">
+            <i class="fas fa-wand-magic-sparkles"></i> Analisar e Cruzar Nomes
+          </button>
+        </div>
+        <textarea id="mapaCsvTexto" rows="6" placeholder="Cole aqui as linhas do CSV do mapa de camas..." style="width:100%; font-family:monospace; font-size:0.82rem; padding:10px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;"></textarea>
+
+        <div id="mapaResumo" style="margin:12px 0; font-weight:600; font-size:0.92rem;"></div>
+
+        <div id="mapaPreviewWrap" style="display:none; max-height:42vh; overflow:auto; border:1px solid #e5e7eb; border-radius:6px;">
+          <table style="width:100%; border-collapse:collapse; font-size:0.86rem;">
+            <thead style="background:#f9fafb; position:sticky; top:0;">
+              <tr>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #e5e7eb;">Quarto</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #e5e7eb;">Período</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #e5e7eb;">Nome na Planilha</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #e5e7eb;">Aluno no Sistema</th>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #e5e7eb;">Status</th>
+              </tr>
+            </thead>
+            <tbody id="mapaTabelaBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div style="padding:12px 20px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px; background:#f9fafb;">
+        <button class="btn btn-outline" onclick="fecharModalMapaCamas()">Cancelar</button>
+        <button id="btnGravarMapa" class="btn btn-primary" onclick="gravarMapaCamas()" disabled>
+          <i class="fas fa-save"></i> Gravar Quartos Confirmados
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div id="loadingOverlay" class="loading-overlay hidden">
     <div class="spinner"></div>
     <p id="loadingText">Processando...</p>
   </div>
 
   <script src="common.js?v=5"></script>
+  <script src="homelistMapa.js?v=1"></script>
   <script src="homelist.js?v=5"></script>
 </body>
 </html>

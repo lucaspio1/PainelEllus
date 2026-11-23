@@ -520,3 +520,185 @@ function toggleLoading(show, text = 'Processando...') {
         }
     }
 }
+
+// =========================================================================
+// IMPORTADOR DE MAPA DE CAMAS (CSV)
+// =========================================================================
+let mapaResultados = [];
+let mapaAlunosPorBloco = {};
+
+function abrirModalMapaCamas() {
+    document.getElementById('modalMapaCamas').style.display = 'flex';
+}
+
+function fecharModalMapaCamas() {
+    document.getElementById('modalMapaCamas').style.display = 'none';
+}
+
+function carregarArquivoMapaCsv(input) {
+    const arq = input.files && input.files[0];
+    if (!arq) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        document.getElementById('mapaCsvTexto').value = reader.result || '';
+    };
+    reader.readAsText(arq, 'UTF-8');
+}
+
+async function analisarMapaCamas() {
+    const texto = document.getElementById('mapaCsvTexto').value.trim();
+    if (!texto) return alert('⚠️ Cole o conteúdo CSV ou escolha um arquivo.');
+
+    const { blocos, itens } = HomelistMapa.parsearMapaCamasCSV(texto);
+    if (itens.length === 0) {
+        return alert('⚠️ Nenhum quarto/hóspede reconhecido no CSV.');
+    }
+
+    // Se o CSV não tiver cabeçalho de datas, usa os filtros da tela
+    const inicioTela = document.getElementById('filterInicio').value;
+    const fimTela = document.getElementById('filterFim').value;
+    for (const b of blocos) {
+        if (b.key === 'padrao') {
+            if (!inicioTela) return alert('⚠️ O CSV não tem linha de datas e a Data Início da tela está vazia.');
+            b.inicio = inicioTela;
+            b.fim = fimTela;
+        }
+    }
+
+    toggleLoading(true, 'Buscando alunos das viagens e cruzando nomes...');
+    try {
+        mapaAlunosPorBloco = {};
+        await Promise.all(blocos.map(async (b) => {
+            let url = `/api/embarque-lista?inicio=${encodeURIComponent(b.inicio)}`;
+            if (b.fim) url += `&fim=${encodeURIComponent(b.fim)}`;
+            const res = await authFetch(url);
+            const json = await res.json();
+            mapaAlunosPorBloco[b.key] = (json.status === 'sucesso' && Array.isArray(json.passageiros))
+                ? json.passageiros
+                : [];
+        }));
+
+        mapaResultados = HomelistMapa.cruzarMapaComAlunos(itens, mapaAlunosPorBloco);
+        renderizarPreviewMapa();
+    } catch (e) {
+        console.error('Erro ao analisar mapa:', e);
+        alert('❌ Erro ao buscar alunos para cruzar.');
+    } finally {
+        toggleLoading(false);
+    }
+}
+
+function renderizarPreviewMapa() {
+    const tbody = document.getElementById('mapaTabelaBody');
+    const wrap = document.getElementById('mapaPreviewWrap');
+    wrap.style.display = 'block';
+
+    const badges = {
+        exato: '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:10px;font-weight:600;">✅ Exato</span>',
+        aproximado: '<span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:10px;font-weight:600;">🟡 Parecido</span>',
+        por_quarto: '<span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px;font-weight:600;">🏠 Pelo quarto</span>',
+        ambiguo: '<span style="background:#ffedd5;color:#9a3412;padding:2px 8px;border-radius:10px;font-weight:600;">⚠️ Escolher</span>',
+        nao_encontrado: '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;font-weight:600;">❌ Não achou</span>',
+        ignorado: '<span style="background:#f3f4f6;color:#4b5563;padding:2px 8px;border-radius:10px;font-weight:600;">⏭️ Ignorar</span>'
+    };
+
+    tbody.innerHTML = mapaResultados.map((r, idx) => {
+        const blocoAlunos = (mapaAlunosPorBloco[r.blocoKey] || [])
+            .slice()
+            .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || '')));
+
+        const vistos = new Set();
+        const opcoes = ['<option value="">-- Ignorar esta linha --</option>'];
+        const adicionarOpcao = (a, prefixo = '') => {
+            const cpf = String(a.cpf || '').replace(/\D/g, '');
+            if (!cpf || vistos.has(cpf)) return;
+            vistos.add(cpf);
+            const sel = r.aluno && String(r.aluno.cpf).replace(/\D/g, '') === cpf ? 'selected' : '';
+            opcoes.push(`<option value="${esc(cpf)}" ${sel}>${esc(prefixo + (a.nome || a.nome_hospede || cpf))} · ${esc(a.colegio || '')}</option>`);
+        };
+        if (r.aluno) adicionarOpcao(r.aluno);
+        (r.candidatos || []).forEach(c => adicionarOpcao(c, '★ '));
+        blocoAlunos.forEach(a => adicionarOpcao(a));
+
+        const periodoTxt = r.inicio ? `${r.inicio.slice(8, 10)}/${r.inicio.slice(5, 7)}` : '-';
+        return `
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:6px 8px;font-weight:700;">${esc(r.quarto)}</td>
+            <td style="padding:6px 8px;color:#666;">${esc(periodoTxt)}</td>
+            <td style="padding:6px 8px;">${esc(r.nome)}</td>
+            <td style="padding:6px 8px;">
+              <select onchange="alterarAlunoMapa(${idx}, this.value)" style="width:100%;max-width:360px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;">
+                ${opcoes.join('')}
+              </select>
+            </td>
+            <td style="padding:6px 8px;">${badges[r.status] || ''}<div style="font-size:0.75rem;color:#666;">${esc(r.motivo || '')}</div></td>
+          </tr>`;
+    }).join('');
+
+    atualizarResumoMapa();
+}
+
+function alterarAlunoMapa(idx, cpf) {
+    const r = mapaResultados[idx];
+    if (!r) return;
+    if (!cpf) {
+        r.aluno = null;
+        r.status = 'ignorado';
+        r.motivo = 'Ignorado manualmente';
+    } else {
+        const lista = mapaAlunosPorBloco[r.blocoKey] || [];
+        r.aluno = lista.find(a => String(a.cpf).replace(/\D/g, '') === cpf) || null;
+        r.status = 'exato';
+        r.motivo = 'Selecionado manualmente';
+    }
+    atualizarResumoMapa();
+}
+
+function atualizarResumoMapa() {
+    const confirmados = mapaResultados.filter(r => r.aluno && r.aluno.cpf).length;
+    const pendentes = mapaResultados.filter(r => !r.aluno && r.status !== 'ignorado').length;
+    const ignorados = mapaResultados.filter(r => r.status === 'ignorado').length;
+    document.getElementById('mapaResumo').textContent =
+        `✅ ${confirmados} pronto(s) para gravar · ⚠️ ${pendentes} não encontrado(s)/ambíguo(s) · ⏭️ ${ignorados} ignorado(s)`;
+    document.getElementById('btnGravarMapa').disabled = confirmados === 0;
+}
+
+async function gravarMapaCamas() {
+    const lista = mapaResultados
+        .filter(r => r.aluno && r.aluno.cpf)
+        .map(r => ({
+            cpf: String(r.aluno.cpf).replace(/\D/g, ''),
+            numero_quarto: String(r.quarto).trim(),
+            nome_hospede: r.aluno.nome || r.aluno.nome_hospede || '',
+            colegio: r.aluno.colegio || '',
+            inicio_viagem: r.aluno.inicioViagem || r.aluno.inicio_viagem || r.inicio || '',
+            fim_viagem: r.aluno.fimViagem || r.aluno.fim_viagem || r.fim || ''
+        }));
+
+    if (lista.length === 0) return;
+
+    toggleLoading(true, `Gravando ${lista.length} quarto(s)...`);
+    try {
+        for (let i = 0; i < lista.length; i += 400) {
+            const lote = lista.slice(i, i + 400);
+            const res = await authFetch('/api/atribuir-quartos-batch', {
+                method: 'POST',
+                body: JSON.stringify({ alunos: lote })
+            });
+            const json = await res.json();
+            if (!json.success) {
+                throw new Error(json.message || 'Falha ao gravar lote');
+            }
+        }
+        alert(`✅ ${lista.length} quarto(s) gravado(s) com sucesso!`);
+        fecharModalMapaCamas();
+        if (document.getElementById('filterInicio').value) {
+            buscarAlunos();
+        }
+    } catch (e) {
+        console.error('Erro ao gravar mapa:', e);
+        alert('❌ Erro ao gravar quartos: ' + e.message);
+    } finally {
+        toggleLoading(false);
+    }
+}
