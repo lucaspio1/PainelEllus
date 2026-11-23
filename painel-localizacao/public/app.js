@@ -135,38 +135,49 @@ async function carregarDados(silent = false) {
   }
 }
 
+function ehViagemEmAndamento(v, hoje = Ellus.hojeISO()) {
+  const ini = String((v && v.inicio_viagem) || '');
+  const fim = String((v && v.fim_viagem) || '');
+  return /^\d{4}-\d{2}-\d{2}$/.test(ini) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(fim) &&
+    ini <= hoje &&
+    hoje <= fim;
+}
+
 function atualizarFiltroViagens(viagens) {
   const select = el('filtroViagem');
   const hoje = Ellus.hojeISO();
-  // Viagens em andamento primeiro, depois as mais recentes
-  viagens.sort((a, b) => {
-    const aAtiva = a.inicio_viagem <= hoje && hoje <= a.fim_viagem;
-    const bAtiva = b.inicio_viagem <= hoje && hoje <= b.fim_viagem;
-    if (aAtiva !== bAtiva) return aAtiva ? -1 : 1;
-    return String(b.inicio_viagem).localeCompare(String(a.inicio_viagem));
-  });
-  select.innerHTML = '<option value="">Todas as viagens</option>';
-  viagens.forEach(v => {
+  // Exibe apenas viagens em andamento hoje (com bolinha verde)
+  const ativas = viagens
+    .filter(v => ehViagemEmAndamento(v, hoje))
+    .sort((a, b) => String(b.inicio_viagem).localeCompare(String(a.inicio_viagem)));
+
+  select.innerHTML = ativas.length > 0
+    ? '<option value="">Todas as viagens em andamento</option>'
+    : '<option value="">Nenhuma viagem em andamento</option>';
+
+  ativas.forEach(v => {
     const opt = document.createElement('option');
     opt.value = `${v.inicio_viagem}|${v.fim_viagem}`;
-    const ativa = v.inicio_viagem <= hoje && hoje <= v.fim_viagem;
-    opt.textContent = `${ativa ? '🟢 ' : ''}${v.label}`;
+    opt.textContent = `🟢 ${v.label}`;
     select.appendChild(opt);
   });
-  const valores = viagens.map(v => `${v.inicio_viagem}|${v.fim_viagem}`);
+
+  const valores = ativas.map(v => `${v.inicio_viagem}|${v.fim_viagem}`);
   if (filtros.viagem && !valores.includes(filtros.viagem)) filtros.viagem = '';
-  // Primeira visita: se houver exatamente uma viagem em andamento, já seleciona
-  if (!filtros.viagem && !Ellus.prefs.ler('quartos_filtros', null)) {
-    const ativas = viagens.filter(v => v.inicio_viagem <= hoje && hoje <= v.fim_viagem);
-    if (ativas.length === 1) filtros.viagem = `${ativas[0].inicio_viagem}|${ativas[0].fim_viagem}`;
+  // Se houver exatamente uma viagem em andamento, já seleciona automaticamente
+  if (!filtros.viagem && ativas.length === 1) {
+    filtros.viagem = `${ativas[0].inicio_viagem}|${ativas[0].fim_viagem}`;
   }
   select.value = filtros.viagem;
 }
 
 function pessoasDaViagem() {
-  if (!filtros.viagem) return todasPessoas;
+  const hoje = Ellus.hojeISO();
+  const ativas = todasPessoas.filter(p => ehViagemEmAndamento(p, hoje));
+  if (!filtros.viagem) return ativas;
   const [ini, fim] = filtros.viagem.split('|');
-  return todasPessoas.filter(p => p.inicio_viagem === ini && p.fim_viagem === fim);
+  return ativas.filter(p => p.inicio_viagem === ini && p.fim_viagem === fim);
 }
 
 function preencherColegios() {
