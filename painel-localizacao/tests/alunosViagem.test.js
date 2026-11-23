@@ -1,7 +1,7 @@
 // Testes de alunos de uma viagem (listar, editar, excluir). Rodar: npm run test:unit
 const test = require('node:test');
 const assert = require('node:assert');
-const { listarAlunosDaViagem, planejarEdicaoAluno, planejarExclusaoAluno } = require('../store/viagens');
+const { listarAlunosDaViagem, planejarAdicaoAluno, planejarEdicaoAluno, planejarExclusaoAluno } = require('../store/viagens');
 
 function store({ alunos = [], quartos = [], embarques = [] } = {}) {
   const m = (arr) => new Map(arr.map(d => [d.cpf, { id: d.cpf, ...d }]));
@@ -59,4 +59,36 @@ test('excluir aluno apaga só os documentos dele nesta viagem', () => {
   assert.ok(plano.exclusoes.every(e => e.id === '2'));
   assert.strictEqual(plano.nome, 'Bruno');
   assert.ok(planejarExclusaoAluno(dados(), { colegio: 'Colégio A', inicio: '2026-10-05', cpf: '9' }).erro);
+});
+
+test('adicionar aluno puxa dados da viagem e replica para alunos, quartos e embarques', () => {
+  const plano = planejarAdicaoAluno(
+    dados(),
+    { colegio: 'Colégio A', inicio: '2026-10-05' },
+    { nome: '  Gabriel  Campos ', cpf: '104.325.549-47' },
+    { agoraISO: '2026-11-23T00:00:00.000Z' }
+  );
+  assert.ok(!plano.erro, plano.erro);
+  assert.strictEqual(plano.escritas.length, 3);
+  const por = Object.fromEntries(plano.escritas.map(e => [e.col, e]));
+  assert.strictEqual(por.alunos.id, '10432554947');
+  assert.strictEqual(por.alunos.data.colegio, 'Colégio A');
+  assert.strictEqual(por.alunos.data.inicio_viagem, '2026-10-05');
+  assert.strictEqual(por.alunos.data.fim_viagem, '2026-10-07');
+  assert.strictEqual(por.alunos.data.facial, true);
+  assert.strictEqual(por.alunos.data.movimentacao, 'QUARTO');
+  assert.strictEqual(por.quartos.data.nome_hospede, 'Gabriel Campos');
+  assert.strictEqual(por.quartos.data.numero_quarto, '');
+  assert.strictEqual(por.embarques.data.idPasseio, 'P1');
+  assert.strictEqual(por.embarques.data.onibus, '1');
+  assert.strictEqual(por.embarques.data.Facial, 'PENDENTE');
+  assert.strictEqual(por.embarques.data.facial_cadastrada, false);
+});
+
+test('adicionar aluno recusa CPF já existente na viagem e dados inválidos', () => {
+  const s = dados();
+  assert.ok(planejarAdicaoAluno(s, { colegio: 'Colégio A', inicio: '2026-10-05' }, { nome: 'Repetido', cpf: '1' }).erro);
+  assert.ok(planejarAdicaoAluno(s, { colegio: 'Colégio A', inicio: '2026-10-05' }, { nome: '  ', cpf: '555' }).erro);
+  assert.ok(planejarAdicaoAluno(s, { colegio: 'Colégio A', inicio: '2026-10-05' }, { nome: 'Sem CPF', cpf: '' }).erro);
+  assert.ok(planejarAdicaoAluno(s, { colegio: 'Inexistente', inicio: '2026-10-05' }, { nome: 'X', cpf: '555' }).erro);
 });

@@ -54,18 +54,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Modais
   document.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', fecharModais));
-  document.querySelectorAll('[data-voltar-alunos]').forEach(b => b.addEventListener('click', fecharEdicaoAluno));
+  document.querySelectorAll('[data-voltar-alunos]').forEach(b => b.addEventListener('click', fecharSubmodalAluno));
   document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => {
     if (e.target !== m) return;
-    if (m.id === 'modalEditarAluno') fecharEdicaoAluno(); else fecharModais();
+    if (m.id === 'modalEditarAluno' || m.id === 'modalAdicionarAluno') fecharSubmodalAluno(); else fecharModais();
   }));
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    if (document.getElementById('modalEditarAluno').style.display === 'flex') fecharEdicaoAluno();
+    if (submodalAlunoAberto()) fecharSubmodalAluno();
     else fecharModais();
   });
   document.getElementById('formEditar').addEventListener('submit', salvarEdicao);
   document.getElementById('formEditarAluno').addEventListener('submit', salvarEdicaoAluno);
+  document.getElementById('formAdicionarAluno').addEventListener('submit', salvarAdicaoAluno);
+  document.getElementById('btnAdicionarAluno').addEventListener('click', abrirAdicaoAluno);
   document.getElementById('pesquisaAluno').addEventListener('input', renderizarAlunos);
   document.getElementById('confirmaExcluir').addEventListener('input', e => {
     document.getElementById('btnConfirmarExcluir').disabled = e.target.value.trim().toUpperCase() !== 'EXCLUIR';
@@ -78,7 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const socket = io();
     socket.on('dados_atualizados', () => {
       carregarViagens(true);
-      if (viagemAlunos && document.getElementById('modalEditarAluno').style.display !== 'flex') carregarAlunos(true);
+      if (viagemAlunos && !submodalAlunoAberto()) carregarAlunos(true);
     });
   }
 });
@@ -297,6 +299,7 @@ function abrirAlunos(v) {
   document.getElementById('tituloAlunos').textContent =
     `${v.colegio} · ${Ellus.formatarData(v.inicio)} → ${Ellus.formatarData(v.fim)}`;
   document.getElementById('pesquisaAluno').value = '';
+  document.getElementById('btnAdicionarAluno').style.display = Ellus.ehAdmin() ? '' : 'none';
   document.getElementById('thQuartoAluno').style.display = v.pernoite ? '' : 'none';
   document.getElementById('tabelaAlunosBody').innerHTML =
     '<tr><td colspan="7" class="muted" style="text-align:center; padding:20px;">Carregando alunos...</td></tr>';
@@ -389,9 +392,66 @@ function abrirEdicaoAluno(a) {
   document.getElementById('alunoNome').focus();
 }
 
-function fecharEdicaoAluno() {
+function submodalAlunoAberto() {
+  return document.getElementById('modalEditarAluno').style.display === 'flex' ||
+    document.getElementById('modalAdicionarAluno').style.display === 'flex';
+}
+
+function fecharSubmodalAluno() {
   document.getElementById('modalEditarAluno').style.display = 'none';
+  document.getElementById('modalAdicionarAluno').style.display = 'none';
   alunoEmEdicao = null;
+}
+
+function abrirAdicaoAluno() {
+  const v = viagemAlunos;
+  if (!v) return;
+  document.getElementById('formAdicionarAluno').reset();
+  const periodo = `${Ellus.formatarData(v.inicio)} → ${Ellus.formatarData(v.fim)}`;
+  const detalhes = [v.colegio, periodo, v.pernoite ? 'Com pernoite' : 'Sem pernoite'].join(' · ');
+  document.getElementById('infoAdicionarAluno').textContent =
+    `Será adicionado em ${detalhes} e replicado automaticamente para alunos, quartos e embarques.`;
+  document.getElementById('modalAdicionarAluno').style.display = 'flex';
+  document.getElementById('novoAlunoNome').focus();
+}
+
+async function salvarAdicaoAluno(e) {
+  e.preventDefault();
+  const v = viagemAlunos;
+  if (!v) return;
+
+  const nome = document.getElementById('novoAlunoNome').value.trim().replace(/\s+/g, ' ');
+  const cpf = document.getElementById('novoAlunoCpf').value.replace(/\D/g, '');
+
+  if (!nome) return Ellus.toast('Informe o nome do aluno.', 'error');
+  if (cpf.length !== 11) return Ellus.toast('Informe um CPF válido com 11 dígitos.', 'error');
+
+  toggleLoading(true, 'Adicionando aluno...');
+  try {
+    const res = await authFetch('/api/viagens/aluno', {
+      method: 'POST',
+      body: JSON.stringify({
+        colegio: v.colegio,
+        inicio_viagem: v.inicio,
+        nome,
+        cpf,
+        operador: Ellus.usuario().nome
+      })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Erro ao adicionar aluno');
+    fecharSubmodalAluno();
+    Ellus.toast(`✅ ${json.message}`, 'success');
+    await Promise.all([carregarAlunos(true), carregarViagens(true)]);
+  } catch (err) {
+    Ellus.toast(`❌ ${err.message}`, 'error');
+  } finally {
+    toggleLoading(false);
+  }
+}
+
+function fecharEdicaoAluno() {
+  fecharSubmodalAluno();
 }
 
 async function salvarEdicaoAluno(e) {

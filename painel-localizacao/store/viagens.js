@@ -171,7 +171,11 @@ function listarViagens(dataStore, { hojeISO = new Date().toISOString().slice(0, 
       pernoite: v.pernoite,
       situacao: situacao(normalizarDataISO(v.inicio), normalizarDataISO(v.fim), hojeISO)
     }))
-    .sort((a, b) => String(b.inicio).localeCompare(String(a.inicio)));
+    .sort((a, b) => {
+      const cmpData = String(b.inicio).localeCompare(String(a.inicio));
+      if (cmpData !== 0) return cmpData;
+      return String(a.colegio).localeCompare(String(b.colegio), 'pt-BR', { sensitivity: 'base' });
+    });
 }
 
 /**
@@ -340,6 +344,132 @@ function planejarEdicaoAluno(dataStore, { colegio, inicio, cpf }, novo, { agoraI
   return { escritas, mudancas };
 }
 
+/** Valor mais frequente (não vazio) de um campo em uma lista de documentos. */
+function valorMaisFrequente(lista, campo) {
+  const contagem = new Map();
+  for (const { doc } of lista) {
+    const v = limpar(doc && doc[campo]);
+    if (!v) continue;
+    contagem.set(v, (contagem.get(v) || 0) + 1);
+  }
+  if (contagem.size === 0) return '';
+  return [...contagem.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR', { numeric: true }))[0][0];
+}
+
+/**
+ * Planeja a adição de UM aluno em uma viagem existente, puxando automaticamente
+ * colégio, datas, pernoite (facial), ID do passeio, ônibus e turma (quando única)
+ * e replicando nas 3 coleções: alunos, quartos e embarques.
+ */
+function planejarAdicaoAluno(dataStore, { colegio, inicio }, novo, { agoraISO = new Date().toISOString() } = {}) {
+  const nome = limpar(novo && novo.nome);
+  const cpf = limparCpf(novo && novo.cpf);
+  if (!nome) return { erro: 'Informe o nome do aluno.' };
+  if (!cpf) return { erro: 'Informe o CPF do aluno.' };
+
+  const docs = docsDaViagem(dataStore, colegio, inicio);
+  const totalViagem = docs.alunos.length + docs.quartos.length + docs.embarques.length;
+  if (totalViagem === 0) return { erro: 'Viagem não encontrada.' };
+
+  const jaNaViagem = docs.alunos.some(d => d.id === cpf) ||
+    docs.quartos.some(d => d.id === cpf) ||
+    docs.embarques.some(d => d.id === cpf);
+  if (jaNaViagem) return { erro: 'Este CPF já está cadastrado nesta viagem.' };
+
+  const refEmb = docs.embarques[0] && docs.embarques[0].doc;
+  const refAluno = docs.alunos[0] && docs.alunos[0].doc;
+  const refQuarto = docs.quartos[0] && docs.quartos[0].doc;
+  const ref = refEmb || refAluno || refQuarto;
+
+  const colegioViagem = limpar(ref.colegio) || limpar(colegio);
+  const inicioBruto = (refEmb && refEmb.inicioViagem) || (refAluno && refAluno.inicio_viagem) || (refQuarto && refQuarto.inicio_viagem) || inicio;
+  const fimBruto = (refEmb && refEmb.fimViagem) || (refAluno && refAluno.fim_viagem) || (refQuarto && refQuarto.fim_viagem) || inicioBruto;
+  const inicioFinal = normalizarDataISO(inicioBruto) || String(inicioBruto || '');
+  const fimFinal = normalizarDataISO(fimBruto) || String(fimBruto || inicioFinal);
+
+  const pernoite = [...docs.alunos, ...docs.quartos, ...docs.embarques].some(({ doc }) => doc && doc.facial === true);
+  const idPasseio = valorMaisFrequente(docs.embarques, 'idPasseio');
+  const onibus = valorMaisFrequente(docs.embarques, 'onibus');
+
+  // Só preenche turma automaticamente se todos os alunos da viagem com turma forem da mesma turma
+  const turmas = new Set(
+    [...docs.alunos, ...docs.embarques]
+      .map(({ doc }) => limpar(doc && doc.turma))
+      .filter(Boolean)
+  );
+  const turma = turmas.size === 1 ? [...turmas][0] : '';
+
+  const alunoExistente = dataStore.alunos instanceof Map ? dataStore.alunos.get(cpf) : null;
+  const quartoExistente = dataStore.quartos instanceof Map ? dataStore.quartos.get(cpf) : null;
+  const embarqueExistente = dataStore.embarques instanceof Map ? dataStore.embarques.get(cpf) : null;
+  const jaTemFacial = !!(alunoExistente && alunoExistente.facial_cadastrada === true);
+
+  const dadosAluno = {
+    colegio: colegioViagem,
+    cpf,
+    nome,
+    turma,
+    inicio_viagem: inicioFinal,
+    fim_viagem: fimFinal,
+    facial: pernoite,
+    movimentacao: 'QUARTO',
+    updated_at: agoraISO
+  };
+
+  const dadosQuarto = {
+    colegio: colegioViagem,
+    cpf,
+    nome_hospede: nome,
+    numero_quarto: '',
+    inicio_viagem: inicioFinal,
+    fim_viagem: fimFinal,
+    facial: pernoite,
+    updated_at: agoraISO
+  };
+  if (!quartoExistente) dadosQuarto.created_at = agoraISO;
+
+  const dadosEmbarque = {
+    colegio: colegioViagem,
+    cpf,
+    nome,
+    turma,
+    idPasseio,
+    onibus,
+    inicioViagem: inicioFinal,
+    fimViagem: fimFinal,
+    facial: pernoite,
+    embarque: '',
+    retorno: '',
+    embarque_at: null,
+    retorno_at: null,
+    Facial: jaTemFacial ? 'CADASTRADA' : 'PENDENTE',
+    facial_cadastrada: jaTemFacial,
+    updated_at: agoraISO
+  };
+  if (!embarqueExistente) dadosEmbarque.created_at = agoraISO;
+
+  return {
+    escritas: [
+      { col: 'alunos', id: cpf, data: dadosAluno },
+      { col: 'quartos', id: cpf, data: dadosQuarto },
+      { col: 'embarques', id: cpf, data: dadosEmbarque }
+    ],
+    aluno: {
+      cpf,
+      nome,
+      colegio: colegioViagem,
+      turma,
+      inicio_viagem: inicioFinal,
+      fim_viagem: fimFinal,
+      idPasseio,
+      onibus,
+      numero_quarto: '',
+      pernoite
+    }
+  };
+}
+
 /** Planeja a exclusão de UM aluno da viagem (alunos, quartos e embarques). */
 function planejarExclusaoAluno(dataStore, { colegio, inicio, cpf }) {
   const { id, docs } = docsDoAluno(dataStore, { colegio, inicio, cpf });
@@ -364,6 +494,7 @@ module.exports = {
   planejarEdicao,
   planejarExclusao,
   listarAlunosDaViagem,
+  planejarAdicaoAluno,
   planejarEdicaoAluno,
   planejarExclusaoAluno,
   aplicarEmLotes,

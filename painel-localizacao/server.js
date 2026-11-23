@@ -17,7 +17,7 @@ const { setupFirestoreListeners } = require('./store/firestoreListeners');
 const { processUploadOperations } = require('./store/uploadProcessor');
 const { montarDelta } = require('./store/delta');
 const { normalizarDataISO, mesmaData, formatarDataBR } = require('./store/datas');
-const { listarViagens, planejarEdicao, planejarExclusao, listarAlunosDaViagem, planejarEdicaoAluno, planejarExclusaoAluno, aplicarEmLotes } = require('./store/viagens');
+const { listarViagens, planejarEdicao, planejarExclusao, listarAlunosDaViagem, planejarAdicaoAluno, planejarEdicaoAluno, planejarExclusaoAluno, aplicarEmLotes } = require('./store/viagens');
 const { planejarImportacao } = require('./store/importacao');
 const { emitirTokenDispositivo, validarTokenDispositivo, revogarDispositivosDoUsuario } = require('./store/deviceTokens');
 const { getAppConfig, resetAppConfig, carregarAppConfigFirestore, salvarAppConfigFirestore } = require('./store/appConfig');
@@ -1338,6 +1338,48 @@ app.get('/api/viagens/alunos', authMiddleware, (req, res) => {
     res.json({ success: true, data: listarAlunosDaViagem(dataStore, { colegio, inicio }) });
   } catch (e) {
     console.error('Erro ao listar alunos da viagem:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ✅ ADICIONAR UM ALUNO NA VIAGEM (apenas nome e CPF; replica para alunos, quartos e embarques)
+app.post('/api/viagens/aluno', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const { colegio, inicio_viagem, nome, cpf, operador } = req.body || {};
+    if (!colegio || !inicio_viagem) {
+      return res.status(400).json({ success: false, message: 'Informe a viagem (colégio e data de início).' });
+    }
+    const timestamp = new Date().toISOString();
+    const plano = planejarAdicaoAluno(dataStore, { colegio, inicio: inicio_viagem }, { nome, cpf }, { agoraISO: timestamp });
+    if (plano.erro) return res.status(400).json({ success: false, message: plano.erro });
+
+    await aplicarEmLotes(db, plano.escritas, (batch, op) =>
+      batch.set(db.collection(op.col).doc(op.id), op.data, { merge: true }));
+    plano.escritas.forEach(op => {
+      const atual = dataStore[op.col].get(op.id) || { id: op.id };
+      dataStore[op.col].set(op.id, { ...atual, ...op.data });
+    });
+
+    const logRef = db.collection('logs').doc();
+    const logData = {
+      tipo: 'ADICAO_ALUNO',
+      cpf: plano.aluno.cpf,
+      nome: plano.aluno.nome,
+      colegio: plano.aluno.colegio,
+      inicio_viagem: plano.aluno.inicio_viagem,
+      operador: operadorDaRequisicao(req, operador),
+      timestamp
+    };
+    await logRef.set(logData);
+    addLog({ id: logRef.id, ...logData });
+
+    ['alunos', 'quartos', 'embarques'].forEach(c => { dataStore.lastUpdate[c] = timestamp; });
+    notificarAlteracao('alunos');
+    console.log(`➕ Aluno adicionado: ${plano.aluno.nome} (${plano.aluno.cpf}) em ${plano.aluno.colegio} (${plano.aluno.inicio_viagem}) por ${logData.operador}`);
+
+    res.json({ success: true, message: 'Aluno adicionado à viagem.', aluno: plano.aluno });
+  } catch (e) {
+    console.error('Erro ao adicionar aluno:', e);
     res.status(500).json({ success: false, message: e.message });
   }
 });

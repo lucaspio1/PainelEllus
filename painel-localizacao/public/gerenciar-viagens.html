@@ -150,8 +150,11 @@
     <div class="modal-box" style="max-width:1000px; width:95%;">
       <div class="modal-header"><h3><i class="fas fa-users"></i> <span id="tituloAlunos">Alunos da viagem</span></h3><button class="btn-close" data-fechar>&times;</button></div>
       <div class="modal-body">
-        <div class="form-field">
-          <input type="text" id="pesquisaAluno" class="form-input" placeholder="Buscar por nome, CPF, turma, ônibus ou quarto" autocomplete="off">
+        <div class="form-field" style="display:flex; gap:10px; align-items:center;">
+          <input type="text" id="pesquisaAluno" class="form-input" style="flex:1;" placeholder="Buscar por nome, CPF, turma, ônibus ou quarto" autocomplete="off">
+          <button type="button" class="btn btn-primary" id="btnAdicionarAluno" style="display:none; white-space:nowrap;">
+            <i class="fas fa-user-plus"></i> Adicionar aluno
+          </button>
         </div>
         <div style="max-height:60vh; overflow:auto;">
           <table class="data-table">
@@ -171,6 +174,30 @@
         </div>
         <p class="muted" id="totalAlunosTexto" style="margin-top:8px;"></p>
       </div>
+    </div>
+  </div>
+
+  <!-- Modal: adicionar aluno -->
+  <div id="modalAdicionarAluno" class="modal-overlay">
+    <div class="modal-box" style="max-width:480px;">
+      <div class="modal-header"><h3><i class="fas fa-user-plus"></i> Adicionar aluno na viagem</h3><button class="btn-close" data-voltar-alunos>&times;</button></div>
+      <form id="formAdicionarAluno">
+        <div class="modal-body">
+          <div class="alerta" id="infoAdicionarAluno">Os demais dados da viagem (colégio, período, ônibus, passeio e pernoite) serão preenchidos automaticamente nas coleções alunos, quartos e embarques.</div>
+          <div class="form-field">
+            <label for="novoAlunoNome">Nome *</label>
+            <input type="text" id="novoAlunoNome" required autocomplete="off" placeholder="Nome completo do aluno">
+          </div>
+          <div class="form-field">
+            <label for="novoAlunoCpf">CPF *</label>
+            <input type="text" id="novoAlunoCpf" required autocomplete="off" placeholder="000.000.000-00" inputmode="numeric">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" data-voltar-alunos>Cancelar</button>
+          <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Adicionar</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -223,6 +250,6 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="common.js?v=5"></script>
-  <script src="gerenciar.js?v=6"></script>
+  <script src="gerenciar.js?v=7"></script>
 </body>
 </html>
