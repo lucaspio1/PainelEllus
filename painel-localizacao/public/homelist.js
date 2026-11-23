@@ -538,11 +538,22 @@ function fecharModalMapaCamas() {
 function carregarArquivoMapaCsv(input) {
     const arq = input.files && input.files[0];
     if (!arq) return;
+    const ehExcel = /\.(xlsx|xls)$/i.test(arq.name);
     const reader = new FileReader();
     reader.onload = () => {
-        document.getElementById('mapaCsvTexto').value = reader.result || '';
+        if (ehExcel) {
+            if (typeof XLSX === 'undefined') {
+                return alert('❌ Biblioteca Excel não carregou. Recarregue a página ou cole os dados da planilha na caixa abaixo.');
+            }
+            const wb = XLSX.read(reader.result, { type: 'array' });
+            const csvs = wb.SheetNames.map(nome => XLSX.utils.sheet_to_csv(wb.Sheets[nome]));
+            document.getElementById('mapaCsvTexto').value = csvs.join('\n');
+        } else {
+            document.getElementById('mapaCsvTexto').value = reader.result || '';
+        }
     };
-    reader.readAsText(arq, 'UTF-8');
+    if (ehExcel) reader.readAsArrayBuffer(arq);
+    else reader.readAsText(arq, 'UTF-8');
 }
 
 async function analisarMapaCamas() {

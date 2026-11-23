@@ -6,6 +6,7 @@
   <title>HOMELIST - Atribuir Quartos - Ellus</title>
   <link rel="stylesheet" href="style.css?v=5">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
   <style>
     .homelist-container { max-width: 1600px; margin: 20px auto; padding: 20px; height: calc(100vh - 140px); display: flex; flex-direction: column; }
     .filters-section { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); flex-shrink: 0; }
@@ -196,7 +197,7 @@
           Cole o conteúdo CSV do mapa de camas abaixo (ou escolha um arquivo <code>.csv</code>). O sistema identifica as datas, cruza os nomes com os alunos dessas viagens e usa o colégio do próprio quarto para resolver nomes curtos (ex.: apenas o primeiro nome).
         </p>
         <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
-          <input type="file" id="mapaCsvArquivo" accept=".csv,.txt" onchange="carregarArquivoMapaCsv(this)">
+          <input type="file" id="mapaCsvArquivo" accept=".xlsx,.xls,.csv,.txt" onchange="carregarArquivoMapaCsv(this)">
           <button class="btn btn-primary" onclick="analisarMapaCamas()">
             <i class="fas fa-wand-magic-sparkles"></i> Analisar e Cruzar Nomes
           </button>
