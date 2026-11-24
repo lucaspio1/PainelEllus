@@ -27,9 +27,16 @@ const sim = (v) => String(v || '').trim().toUpperCase() === 'SIM';
 
 const estado = Ellus.prefs.ler('embarque_filtros', { periodo: 'hoje', viagem: '', status: '', termo: '' });
 let viagens = [];
+let opcoesViagem = [];
+let indiceAtivoViagem = -1;
 let passageiros = [];
 let viagensSelecionadas = [];
 const abertos = new Set(); // acordeões abertos (sobrevivem ao auto-refresh)
+
+const normalizarTexto = (v) => String(v || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase();
 
 const el = (id) => document.getElementById(id);
 
@@ -48,9 +55,10 @@ document.addEventListener('DOMContentLoaded', () => {
   el('searchEmbarque').addEventListener('input', (e) => { estado.termo = e.target.value; renderizar(); });
   document.querySelectorAll('[data-periodo]').forEach(b => b.addEventListener('click', () => {
     estado.periodo = b.dataset.periodo;
+    if (estado.periodo !== 'escolher') fecharDropdownViagem();
     carregar();
   }));
-  el('selViagem').addEventListener('change', (e) => { estado.viagem = e.target.value; carregar(); });
+  inicializarDropdownViagem();
   document.querySelectorAll('#chipsStatus .chip').forEach(c => c.addEventListener('click', () => {
     estado.status = c.dataset.valor;
     renderizar();
@@ -120,8 +128,156 @@ async function carregar(silencioso = false) {
   }
 }
 
+function inicializarDropdownViagem() {
+  const wrap = el('dropdownViagem');
+  const btn = el('btnSelViagem');
+  const busca = el('buscaViagem');
+  const btnLimpar = el('btnLimparBuscaViagem');
+  const lista = el('listaViagensDropdown');
+
+  btn.addEventListener('click', () => {
+    if (wrap.classList.contains('open')) fecharDropdownViagem();
+    else abrirDropdownViagem();
+  });
+
+  btn.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      abrirDropdownViagem();
+    }
+  });
+
+  busca.addEventListener('input', () => {
+    indiceAtivoViagem = 0;
+    renderizarListaViagens();
+  });
+
+  busca.addEventListener('keydown', (e) => {
+    const itens = lista.querySelectorAll('.searchable-select-option');
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      fecharDropdownViagem(true);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (itens.length > 0) {
+        indiceAtivoViagem = Math.min(indiceAtivoViagem + 1, itens.length - 1);
+        destacarOpcaoViagem(itens);
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (itens.length > 0) {
+        indiceAtivoViagem = Math.max(indiceAtivoViagem - 1, 0);
+        destacarOpcaoViagem(itens);
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const alvo = itens[indiceAtivoViagem >= 0 ? indiceAtivoViagem : 0];
+      if (alvo) selecionarViagem(alvo.dataset.valor);
+    } else if (e.key === 'Tab') {
+      fecharDropdownViagem();
+    }
+  });
+
+  btnLimpar.addEventListener('click', () => {
+    busca.value = '';
+    indiceAtivoViagem = -1;
+    renderizarListaViagens();
+    busca.focus();
+  });
+
+  lista.addEventListener('click', (e) => {
+    const opt = e.target.closest('.searchable-select-option');
+    if (opt) selecionarViagem(opt.dataset.valor);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!wrap.contains(e.target)) fecharDropdownViagem();
+  });
+}
+
+function abrirDropdownViagem() {
+  const wrap = el('dropdownViagem');
+  const btn = el('btnSelViagem');
+  const busca = el('buscaViagem');
+  wrap.classList.add('open');
+  btn.setAttribute('aria-expanded', 'true');
+  busca.value = '';
+  indiceAtivoViagem = -1;
+  renderizarListaViagens();
+  const selecionada = el('listaViagensDropdown').querySelector('.is-selected');
+  if (selecionada) selecionada.scrollIntoView({ block: 'nearest' });
+  busca.focus();
+}
+
+function fecharDropdownViagem(focarBotao = false) {
+  const wrap = el('dropdownViagem');
+  if (!wrap || !wrap.classList.contains('open')) return;
+  wrap.classList.remove('open');
+  el('btnSelViagem').setAttribute('aria-expanded', 'false');
+  if (focarBotao) el('btnSelViagem').focus();
+}
+
+function destacarOpcaoViagem(itens) {
+  itens.forEach((it, idx) => it.classList.toggle('is-active', idx === indiceAtivoViagem));
+  if (itens[indiceAtivoViagem]) itens[indiceAtivoViagem].scrollIntoView({ block: 'nearest' });
+}
+
+function selecionarViagem(valor) {
+  const mudou = estado.viagem !== valor;
+  estado.viagem = valor;
+  atualizarLabelViagem();
+  fecharDropdownViagem(true);
+  if (mudou) carregar();
+}
+
+function atualizarLabelViagem() {
+  const hidden = el('selViagem');
+  const label = el('labelSelViagem');
+  const atual = opcoesViagem.find(o => o.valor === (estado.viagem || ''));
+  hidden.value = atual ? atual.valor : '';
+  if (atual) {
+    label.textContent = atual.labelCurto;
+    label.classList.remove('placeholder');
+  } else {
+    label.textContent = 'Selecione a viagem...';
+    label.classList.add('placeholder');
+  }
+}
+
+function renderizarListaViagens() {
+  const busca = el('buscaViagem');
+  const btnLimpar = el('btnLimparBuscaViagem');
+  const lista = el('listaViagensDropdown');
+  const termo = normalizarTexto(busca.value).trim();
+  const tokens = termo ? termo.split(/\s+/) : [];
+  btnLimpar.classList.toggle('hidden', !busca.value);
+
+  const filtradas = tokens.length
+    ? opcoesViagem.filter(o => tokens.every(t => o.busca.includes(t)))
+    : opcoesViagem;
+
+  if (filtradas.length === 0) {
+    lista.innerHTML = '<div class="searchable-select-empty">Nenhuma viagem encontrada.</div>';
+    return;
+  }
+
+  if (indiceAtivoViagem >= filtradas.length) indiceAtivoViagem = filtradas.length - 1;
+
+  lista.innerHTML = filtradas.map((o, idx) => {
+    const sel = o.valor === (estado.viagem || '');
+    const ativo = idx === indiceAtivoViagem;
+    return `
+      <button type="button" class="searchable-select-option${sel ? ' is-selected' : ''}${ativo ? ' is-active' : ''}" role="option" aria-selected="${sel}" data-valor="${esc(o.valor)}">
+        <span class="searchable-select-option-main">
+          <span class="searchable-select-option-title">${o.ativa ? '🟢 ' : ''}${esc(o.colegio)}</span>
+          <span class="searchable-select-option-sub">${esc(o.periodoFmt)}</span>
+        </span>
+        <span class="searchable-select-option-count">${o.qtd} ${o.qtd === 1 ? 'aluno' : 'alunos'}</span>
+      </button>`;
+  }).join('');
+}
+
 function preencherSelectViagens() {
-  const sel = el('selViagem');
   const hoje = Ellus.hojeISO();
   const ordenadas = viagens.slice().sort((a, b) => {
     const aFim = a.fim || a.inicio;
@@ -131,12 +287,24 @@ function preencherSelectViagens() {
     if (aAtiva !== bAtiva) return aAtiva ? -1 : 1;
     return String(b.inicio).localeCompare(String(a.inicio));
   });
-  sel.innerHTML = '<option value="">Selecione a viagem...</option>' + ordenadas.map(v => {
+  opcoesViagem = ordenadas.map(v => {
     const fim = v.fim || v.inicio;
     const ativa = Boolean(v.inicio && v.inicio <= hoje && hoje <= fim);
-    return `<option value="${esc(chaveViagem(v))}">${ativa ? '🟢 ' : ''}${esc(v.colegio)} — ${esc(Ellus.formatarData(v.inicio))} a ${esc(Ellus.formatarData(v.fim))} (${v.qtd_alunos})</option>`;
-  }).join('');
-  sel.value = estado.viagem || '';
+    const inicioFmt = Ellus.formatarData(v.inicio);
+    const fimFmt = Ellus.formatarData(v.fim);
+    const periodoFmt = `${inicioFmt} a ${fimFmt}`;
+    return {
+      valor: chaveViagem(v),
+      colegio: v.colegio,
+      ativa,
+      qtd: Number(v.qtd_alunos || 0),
+      periodoFmt,
+      labelCurto: `${ativa ? '🟢 ' : ''}${v.colegio} — ${periodoFmt} (${v.qtd_alunos})`,
+      busca: normalizarTexto(`${v.colegio} ${inicioFmt} ${fimFmt} ${v.inicio || ''} ${v.fim || ''}`)
+    };
+  });
+  atualizarLabelViagem();
+  renderizarListaViagens();
 }
 
 function correspondeBusca(p) {

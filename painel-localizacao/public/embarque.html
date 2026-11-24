@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Controle de Embarque - Ellus</title>
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=6">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     .student-row .acoes-linha { display: flex; gap: 6px; }
@@ -39,8 +39,22 @@
         </div>
       </div>
       <div class="filter-field grow hidden" id="campoViagem">
-        <label for="selViagem">Viagem</label>
-        <select id="selViagem" class="form-select"></select>
+        <label for="btnSelViagem">Viagem</label>
+        <div class="searchable-select" id="dropdownViagem">
+          <input type="hidden" id="selViagem" value="">
+          <button type="button" id="btnSelViagem" class="searchable-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+            <span id="labelSelViagem" class="searchable-select-label placeholder">Selecione a viagem...</span>
+            <i class="fas fa-chevron-down searchable-select-chevron" aria-hidden="true"></i>
+          </button>
+          <div class="searchable-select-menu" id="menuViagem">
+            <div class="searchable-select-search">
+              <i class="fas fa-search" aria-hidden="true"></i>
+              <input type="text" id="buscaViagem" placeholder="Buscar colégio ou data..." autocomplete="off" aria-label="Buscar viagem">
+              <button type="button" id="btnLimparBuscaViagem" class="searchable-select-clear hidden" title="Limpar busca" aria-label="Limpar busca">&times;</button>
+            </div>
+            <div class="searchable-select-list" id="listaViagensDropdown" role="listbox"></div>
+          </div>
+        </div>
       </div>
       <div class="filter-field grow">
         <label for="searchEmbarque">Buscar</label>
@@ -74,6 +88,6 @@
   <div id="toastContainer" class="toast-container"></div>
   <script src="/socket.io/socket.io.js"></script>
   <script src="common.js?v=5"></script>
-  <script src="embarque.js?v=5"></script>
+  <script src="embarque.js?v=6"></script>
 </body>
 </html>
