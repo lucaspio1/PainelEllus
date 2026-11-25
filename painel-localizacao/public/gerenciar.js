@@ -24,7 +24,10 @@ let viagensTotais = [];
 let viagemEmEdicao = null;
 let viagemEmExclusao = null;
 
-const filtros = Ellus.prefs.ler('viagens_filtros', { termo: '', situacao: '', tipo: '', mes: '' });
+const filtros = Object.assign(
+  { termo: '', situacao: '', tipo: '', facial: '', mes: '' },
+  Ellus.prefs.ler('viagens_filtros', {})
+);
 
 document.addEventListener('DOMContentLoaded', () => {
   if (!localStorage.getItem('painel_user')) { window.location.href = '/login'; return; }
@@ -33,21 +36,24 @@ document.addEventListener('DOMContentLoaded', () => {
   // Filtros (restaurados da última visita)
   const inputBusca = document.getElementById('pesquisaViagem');
   const selTipo = document.getElementById('filtroTipo');
+  const selFacial = document.getElementById('filtroFacial');
   const inputMes = document.getElementById('filtroMes');
   inputBusca.value = filtros.termo;
   selTipo.value = filtros.tipo;
+  selFacial.value = filtros.facial;
   inputMes.value = filtros.mes;
   marcarChip(filtros.situacao);
 
   inputBusca.addEventListener('input', () => { filtros.termo = inputBusca.value; aplicarFiltros(); });
   selTipo.addEventListener('change', () => { filtros.tipo = selTipo.value; aplicarFiltros(); });
+  selFacial.addEventListener('change', () => { filtros.facial = selFacial.value; aplicarFiltros(); });
   inputMes.addEventListener('change', () => { filtros.mes = inputMes.value; aplicarFiltros(); });
   document.querySelectorAll('#chipsSituacao .chip').forEach(chip => {
     chip.addEventListener('click', () => { filtros.situacao = chip.dataset.valor; marcarChip(filtros.situacao); aplicarFiltros(); });
   });
   document.getElementById('btnLimparFiltros').addEventListener('click', () => {
-    Object.assign(filtros, { termo: '', situacao: '', tipo: '', mes: '' });
-    inputBusca.value = ''; selTipo.value = ''; inputMes.value = '';
+    Object.assign(filtros, { termo: '', situacao: '', tipo: '', facial: '', mes: '' });
+    inputBusca.value = ''; selTipo.value = ''; selFacial.value = ''; inputMes.value = '';
     marcarChip('');
     aplicarFiltros();
   });
@@ -68,7 +74,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('formEditarAluno').addEventListener('submit', salvarEdicaoAluno);
   document.getElementById('formAdicionarAluno').addEventListener('submit', salvarAdicaoAluno);
   document.getElementById('btnAdicionarAluno').addEventListener('click', abrirAdicaoAluno);
+  document.getElementById('btnExportarAlunos').addEventListener('click', exportarAlunos);
   document.getElementById('pesquisaAluno').addEventListener('input', renderizarAlunos);
+  document.querySelectorAll('#chipsFacialAluno .chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      filtroFacialAluno = chip.dataset.valor;
+      renderizarAlunos();
+    });
+  });
   document.getElementById('confirmaExcluir').addEventListener('input', e => {
     document.getElementById('btnConfirmarExcluir').disabled = e.target.value.trim().toUpperCase() !== 'EXCLUIR';
   });
@@ -105,6 +118,16 @@ async function carregarViagens(silencioso = false) {
   }
 }
 
+function contarFaciaisViagem(v) {
+  const total = Number(v.qtd_alunos || 0);
+  const com = Math.min(Number(v.faciais_cadastradas || 0), total);
+  const sem = v.faciais_pendentes !== undefined
+    ? Math.max(0, Number(v.faciais_pendentes))
+    : Math.max(0, total - com);
+  const pct = total ? Math.round((com / total) * 100) : 0;
+  return { total, com, sem, pct };
+}
+
 function atualizarKpis() {
   const conta = (s) => viagensTotais.filter(v => v.situacao === s).length;
   document.getElementById('kpiAndamento').textContent = conta('andamento');
@@ -114,6 +137,22 @@ function atualizarKpis() {
     .filter(v => v.situacao === 'andamento').reduce((n, v) => n + v.qtd_alunos, 0);
 }
 
+function atualizarKpisFaciais(viagens) {
+  const totais = viagens.reduce((acc, v) => {
+    const f = contarFaciaisViagem(v);
+    acc.total += f.total;
+    acc.com += f.com;
+    acc.sem += f.sem;
+    return acc;
+  }, { total: 0, com: 0, sem: 0 });
+  const pctCom = totais.total ? Math.round((totais.com / totais.total) * 100) : 0;
+  const pctSem = totais.total ? Math.round((totais.sem / totais.total) * 100) : 0;
+  document.getElementById('kpiComFacial').textContent = totais.com;
+  document.getElementById('kpiComFacialSub').textContent = `${pctCom}% de ${totais.total} aluno(s)`;
+  document.getElementById('kpiSemFacial').textContent = totais.sem;
+  document.getElementById('kpiSemFacialSub').textContent = `${pctSem}% pendente(s)`;
+}
+
 function aplicarFiltros() {
   Ellus.prefs.gravar('viagens_filtros', filtros);
   const termo = filtros.termo.toLowerCase().trim();
@@ -121,6 +160,12 @@ function aplicarFiltros() {
     if (filtros.situacao && v.situacao !== filtros.situacao) return false;
     if (filtros.tipo === 'pernoite' && !v.pernoite) return false;
     if (filtros.tipo === 'comum' && v.pernoite) return false;
+    if (filtros.facial) {
+      const f = contarFaciaisViagem(v);
+      if (filtros.facial === 'pendentes' && f.sem === 0) return false;
+      if (filtros.facial === 'completas' && !(f.total > 0 && f.sem === 0)) return false;
+      if (filtros.facial === 'nenhuma' && !(f.total > 0 && f.com === 0)) return false;
+    }
     if (filtros.mes && !String(v.inicio).startsWith(filtros.mes)) return false;
     if (termo) {
       const alvo = [v.colegio, ...(v.passeios || []), ...(v.onibus || []).map(o => `onibus ${o}`)].join(' ').toLowerCase();
@@ -128,6 +173,7 @@ function aplicarFiltros() {
     }
     return true;
   });
+  atualizarKpisFaciais(filtradas);
   renderizarTabela(filtradas);
 }
 
@@ -140,6 +186,26 @@ function barra(valor, total, classe = '') {
   if (!total) return '<span class="muted">—</span>';
   const pct = Math.round((valor / total) * 100);
   return `<div style="min-width:90px"><span class="muted"><strong style="color:#1f2937">${valor}</strong>/${total}</span><div class="bar ${classe}"><span style="width:${pct}%"></span></div></div>`;
+}
+
+function celulaFaciais(v) {
+  const { total, com, sem, pct } = contarFaciaisViagem(v);
+  if (!total) return '<span class="muted">—</span>';
+  const barCls = pct === 100 ? 'green' : (com === 0 ? 'warn' : '');
+  const pendCls = sem > 0 ? 'facial-pill-pend' : 'facial-pill-zero';
+  return `
+    <div class="facial-cell">
+      <div class="facial-row">
+        <button type="button" class="facial-pill facial-pill-ok" data-acao="alunos-facial" data-filtro="com" title="Ver ${com} aluno(s) com facial cadastrada">
+          <i class="fas fa-check-circle"></i> ${com}
+        </button>
+        <button type="button" class="facial-pill ${pendCls}" data-acao="alunos-facial" data-filtro="sem" title="Ver ${sem} aluno(s) sem facial cadastrada">
+          <i class="fas fa-times-circle"></i> ${sem}
+        </button>
+        <span class="facial-pct">${pct}%</span>
+      </div>
+      <div class="bar ${barCls}"><span style="width:${pct}%"></span></div>
+    </div>`;
 }
 
 function renderizarTabela(viagens) {
@@ -167,7 +233,7 @@ function renderizarTabela(viagens) {
       <td class="num"><strong>${v.qtd_alunos}</strong></td>
       <td>${barra(v.embarcados, v.qtd_alunos)}</td>
       <td>${barra(v.retornados, v.qtd_alunos, 'blue')}</td>
-      <td>${v.pernoite ? barra(v.faciais_cadastradas, v.qtd_alunos) : '<span class="muted">—</span>'}</td>
+      <td>${celulaFaciais(v)}</td>
       <td>${v.pernoite ? barra(v.com_quarto, v.qtd_alunos) : '<span class="muted">—</span>'}</td>
       <td class="acoes">
         <button class="btn btn-sm btn-outline" data-acao="alunos" title="Ver lista de alunos"><i class="fas fa-users"></i> Alunos</button>
@@ -181,6 +247,9 @@ function renderizarTabela(viagens) {
     if (bEditar) bEditar.addEventListener('click', () => abrirEdicao(v));
     if (bExcluir) bExcluir.addEventListener('click', () => abrirExclusao(v));
     tr.querySelector('[data-acao="alunos"]').addEventListener('click', () => abrirAlunos(v));
+    tr.querySelectorAll('[data-acao="alunos-facial"]').forEach(btn => {
+      btn.addEventListener('click', () => abrirAlunos(v, btn.dataset.filtro));
+    });
     tbody.appendChild(tr);
   });
 }
@@ -292,17 +361,27 @@ async function excluirViagem() {
 let viagemAlunos = null;
 let alunosDaViagem = [];
 let alunoEmEdicao = null;
+let filtroFacialAluno = '';
 
-function abrirAlunos(v) {
+function abrirAlunos(v, filtroFacialInicial = '') {
   viagemAlunos = v;
   alunosDaViagem = [];
+  filtroFacialAluno = filtroFacialInicial || '';
   document.getElementById('tituloAlunos').textContent =
     `${v.colegio} · ${Ellus.formatarData(v.inicio)} → ${Ellus.formatarData(v.fim)}`;
   document.getElementById('pesquisaAluno').value = '';
   document.getElementById('btnAdicionarAluno').style.display = Ellus.ehAdmin() ? '' : 'none';
   document.getElementById('thQuartoAluno').style.display = v.pernoite ? '' : 'none';
+  document.querySelectorAll('#chipsFacialAluno .chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.valor === filtroFacialAluno);
+  });
+  document.getElementById('cntAlunosTodos').textContent = '0';
+  document.getElementById('cntAlunosComFacial').textContent = '0';
+  document.getElementById('cntAlunosSemFacial').textContent = '0';
+  document.getElementById('resumoFacialModal').textContent = 'Carregando...';
+  document.getElementById('barFacialModal').style.width = '0%';
   document.getElementById('tabelaAlunosBody').innerHTML =
-    '<tr><td colspan="7" class="muted" style="text-align:center; padding:20px;">Carregando alunos...</td></tr>';
+    '<tr><td colspan="8" class="muted" style="text-align:center; padding:20px;">Carregando alunos...</td></tr>';
   document.getElementById('totalAlunosTexto').textContent = '';
   document.getElementById('modalAlunos').style.display = 'flex';
   document.getElementById('pesquisaAluno').focus();
@@ -322,30 +401,56 @@ async function carregarAlunos(silencioso = false) {
   } catch (err) {
     if (!silencioso) {
       document.getElementById('tabelaAlunosBody').innerHTML =
-        `<tr><td colspan="7" style="text-align:center; color:#b91c1c; padding:20px;">${esc(err.message)}</td></tr>`;
+        `<tr><td colspan="8" style="text-align:center; color:#b91c1c; padding:20px;">${esc(err.message)}</td></tr>`;
     }
   }
+}
+
+function obterAlunosFiltrados() {
+  const termo = document.getElementById('pesquisaAluno').value.toLowerCase().trim();
+  const termoDigitos = termo.replace(/\D/g, '');
+  const base = alunosDaViagem.filter(a => {
+    if (!termo) return true;
+    const alvo = [a.nome, a.turma, a.onibus && `onibus ${a.onibus}`, a.idPasseio, a.numero_quarto && `quarto ${a.numero_quarto}`]
+      .join(' ').toLowerCase();
+    return alvo.includes(termo) || (termoDigitos.length >= 3 && String(a.cpf).includes(termoDigitos));
+  });
+  const comFacial = base.filter(a => a.facial_cadastrada === true).length;
+  const semFacial = base.length - comFacial;
+  const lista = base.filter(a => {
+    if (filtroFacialAluno === 'com') return a.facial_cadastrada === true;
+    if (filtroFacialAluno === 'sem') return a.facial_cadastrada !== true;
+    return true;
+  });
+  return { base, lista, comFacial, semFacial };
 }
 
 function renderizarAlunos() {
   const v = viagemAlunos;
   if (!v) return;
   const admin = Ellus.ehAdmin();
-  const termo = document.getElementById('pesquisaAluno').value.toLowerCase().trim();
-  const termoDigitos = termo.replace(/\D/g, '');
-  const lista = alunosDaViagem.filter(a => {
-    if (!termo) return true;
-    const alvo = [a.nome, a.turma, a.onibus && `onibus ${a.onibus}`, a.idPasseio, a.numero_quarto && `quarto ${a.numero_quarto}`]
-      .join(' ').toLowerCase();
-    return alvo.includes(termo) || (termoDigitos.length >= 3 && String(a.cpf).includes(termoDigitos));
+  const { base, lista, comFacial, semFacial } = obterAlunosFiltrados();
+
+  document.querySelectorAll('#chipsFacialAluno .chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.valor === filtroFacialAluno);
   });
+  document.getElementById('cntAlunosTodos').textContent = base.length;
+  document.getElementById('cntAlunosComFacial').textContent = comFacial;
+  document.getElementById('cntAlunosSemFacial').textContent = semFacial;
+  const pct = base.length ? Math.round((comFacial / base.length) * 100) : 0;
+  document.getElementById('resumoFacialModal').textContent =
+    `${comFacial} com facial · ${semFacial} sem facial (${pct}%)`;
+  document.getElementById('barFacialModal').style.width = `${pct}%`;
 
   document.getElementById('totalAlunosTexto').textContent =
     `${lista.length} de ${alunosDaViagem.length} aluno(s)` + (admin ? '' : ' · editar e excluir exigem perfil ADMIN');
 
   const tbody = document.getElementById('tabelaAlunosBody');
   if (lista.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center; padding:20px;">${alunosDaViagem.length ? 'Nenhum aluno encontrado.' : 'Esta viagem não tem alunos.'}</td></tr>`;
+    const msg = alunosDaViagem.length
+      ? 'Nenhum aluno encontrado com esses filtros.'
+      : 'Esta viagem não tem alunos.';
+    tbody.innerHTML = `<tr><td colspan="8" class="muted" style="text-align:center; padding:20px;">${msg}</td></tr>`;
     return;
   }
 
@@ -353,12 +458,16 @@ function renderizarAlunos() {
   tbody.innerHTML = '';
   lista.forEach(a => {
     const tr = document.createElement('tr');
+    const badgeFacial = a.facial_cadastrada === true
+      ? '<span class="badge badge-ok"><i class="fas fa-check-circle"></i> Com facial</span>'
+      : '<span class="badge badge-danger"><i class="fas fa-times-circle"></i> Sem facial</span>';
     tr.innerHTML = `
       <td><strong>${esc(a.nome)}</strong><div class="muted">${esc(Ellus.formatarCPF(a.cpf))}</div></td>
       <td>${esc(a.turma) || '<span class="muted">—</span>'}</td>
       <td>${esc(a.onibus) || '<span class="muted">—</span>'}</td>
       <td>${esc(a.idPasseio) || '<span class="muted">—</span>'}</td>
       <td style="${v.pernoite ? '' : 'display:none'}">${esc(a.numero_quarto) || '<span class="muted">—</span>'}</td>
+      <td>${badgeFacial}</td>
       <td>
         <span class="badge ${sim(a.embarque) ? 'badge-ok' : 'badge-off'}">${sim(a.embarque) ? 'Embarcou' : 'Não embarcou'}</span>
         <span class="badge ${sim(a.retorno) ? 'badge-info' : 'badge-off'}">${sim(a.retorno) ? 'Retornou' : 'Não retornou'}</span>
@@ -373,6 +482,32 @@ function renderizarAlunos() {
     if (bExcluir) bExcluir.addEventListener('click', () => excluirAluno(a));
     tbody.appendChild(tr);
   });
+}
+
+function exportarAlunos() {
+  const v = viagemAlunos;
+  if (!v) return;
+  const { lista } = obterAlunosFiltrados();
+  if (lista.length === 0) return Ellus.toast('Nada para exportar.', 'info');
+  const sim = (x) => String(x || '').toUpperCase() === 'SIM';
+  const sufixo = filtroFacialAluno === 'com' ? '_com_facial' : filtroFacialAluno === 'sem' ? '_sem_facial' : '';
+  const nomeCol = String(v.colegio || 'viagem').replace(/[^a-zA-Z0-9_-]+/g, '_').toLowerCase();
+  const linhas = lista.map(a => [
+    a.nome,
+    Ellus.formatarCPF(a.cpf),
+    a.turma || '',
+    a.onibus || '',
+    a.idPasseio || '',
+    a.numero_quarto || '',
+    a.facial_cadastrada === true ? 'Com facial' : 'Sem facial',
+    sim(a.embarque) ? 'Sim' : 'Não',
+    sim(a.retorno) ? 'Sim' : 'Não'
+  ]);
+  Ellus.baixarCSV(
+    `alunos_${nomeCol}_${v.inicio || Ellus.hojeISO()}${sufixo}.csv`,
+    ['Nome', 'CPF', 'Turma', 'Ônibus', 'ID passeio', 'Quarto', 'Facial', 'Embarcou', 'Retornou'],
+    linhas
+  );
 }
 
 function abrirEdicaoAluno(a) {
@@ -523,6 +658,7 @@ function fecharModais() {
   viagemEmExclusao = null;
   viagemAlunos = null;
   alunoEmEdicao = null;
+  filtroFacialAluno = '';
 }
 
 function toggleLoading(show, text = 'Processando...') {

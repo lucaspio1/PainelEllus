@@ -296,6 +296,52 @@ details.bus-accordion[open] summary { border-bottom: 1px solid #e5e7eb; backgrou
 .bar { height: 6px; background: #eef2e8; border-radius: 3px; overflow: hidden; margin-top: 6px; }
 .bar > span { display: block; height: 100%; background: var(--brand-dark-green); border-radius: 3px; }
 .bar.blue > span { background: #2563eb; }
+.bar.green > span { background: #16a34a; }
+.bar.warn > span { background: #d97706; }
+
+/* Indicador de faciais (Gerenciar Viagens) */
+.facial-cell { min-width: 128px; }
+.facial-row { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+.facial-pill {
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 2px 7px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.25;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: transform 0.12s, filter 0.12s;
+}
+.facial-pill:hover { transform: translateY(-1px); filter: brightness(0.95); }
+.facial-pill-ok { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+.facial-pill-pend { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+.facial-pill-zero { background: #f3f4f6; color: #6b7280; border-color: #e5e7eb; }
+.facial-pct { margin-left: auto; font-size: 0.75rem; font-weight: 600; color: #6b7280; font-variant-numeric: tabular-nums; }
+
+.modal-facial-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.modal-facial-resumo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.84rem;
+  color: #374151;
+}
+.modal-facial-resumo .bar { width: 110px; margin-top: 0; }
 
 /* Tabela de dados */
 .data-card { background: white; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.04); overflow: auto; }

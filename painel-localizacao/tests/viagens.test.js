@@ -32,13 +32,36 @@ test('lista viagens juntando formatos de data antigos e novos', () => {
   assert.strictEqual(a.qtd_alunos, 2);
   assert.strictEqual(a.embarcados, 1);
   assert.strictEqual(a.faciais_cadastradas, 1);
+  assert.strictEqual(a.faciais_pendentes, 1);
   assert.strictEqual(a.com_quarto, 1);
   assert.strictEqual(a.pernoite, true);
   assert.strictEqual(a.situacao, 'andamento');
   assert.deepStrictEqual(a.onibus, ['2', '10']); // ordem numérica
   const b = lista.find(v => v.colegio === 'Colégio B');
   assert.strictEqual(b.pernoite, false);
+  assert.strictEqual(b.faciais_cadastradas, 0);
+  assert.strictEqual(b.faciais_pendentes, 1);
   assert.strictEqual(b.situacao, 'futura');
+});
+
+test('conta faciais cadastradas e pendentes sem duplicar entre coleções e formatos', () => {
+  const s = store({
+    alunos: [
+      { cpf: '1', colegio: 'Colégio F', inicio_viagem: '2026-10-10', fim_viagem: '2026-10-12', facial: true, facial_cadastrada: true },
+      { cpf: '2', colegio: 'Colégio F', inicio_viagem: '10/10', fim_viagem: '12/10', facial: true, embedding: [0.1, 0.2] },
+      { cpf: '3', colegio: 'Colégio F', inicio_viagem: '2026-10-10', fim_viagem: '2026-10-12', facial: true, facial_cadastrada: false }
+    ],
+    embarques: [
+      { cpf: '1', colegio: 'Colégio F', inicioViagem: '2026-10-10', fimViagem: '2026-10-12', facial: true, facial_cadastrada: true, Facial: 'CADASTRADA' },
+      { cpf: '2', colegio: 'Colégio F', inicioViagem: '10/10', fimViagem: '12/10', facial: true },
+      { cpf: '3', colegio: 'Colégio F', inicioViagem: '2026-10-10', fimViagem: '2026-10-12', facial: true, Facial: 'PENDENTE' },
+      { cpf: '4', colegio: 'Colégio F', inicioViagem: '2026-10-10', fimViagem: '2026-10-12', facial: false, Facial: 'CADASTRADA' }
+    ]
+  });
+  const [v] = listarViagens(s, { hojeISO: '2026-10-10' });
+  assert.strictEqual(v.qtd_alunos, 4);
+  assert.strictEqual(v.faciais_cadastradas, 3); // cpfs 1, 2 (embedding) e 4 (Facial: CADASTRADA)
+  assert.strictEqual(v.faciais_pendentes, 1);   // cpf 3
 });
 
 test('editar viagem atualiza as três coleções com os nomes de campo de cada uma', () => {

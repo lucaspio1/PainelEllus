@@ -19,6 +19,7 @@ const CAMPOS = {
 };
 
 const limpar = (s) => String(s || '').trim().replace(/\s+/g, ' ');
+const limparCpf = (c) => String(c || '').replace(/\D/g, '');
 
 /** Chave estável da viagem (aceita data ISO ou "DD/MM" antigo). */
 function chaveViagem(colegio, inicio) {
@@ -71,6 +72,23 @@ function situacao(inicioISO, fimISO, hojeISO) {
 
 const sim = (v) => String(v || '').trim().toUpperCase() === 'SIM';
 
+/** Verifica se o documento (aluno ou embarque) indica facial cadastrada. */
+function temFacialCadastrada(doc) {
+  if (!doc) return false;
+  if (doc.facial_cadastrada === true) return true;
+  if (String(doc.Facial || '').trim().toUpperCase() === 'CADASTRADA') return true;
+  if (Array.isArray(doc.embedding) && doc.embedding.length > 0) return true;
+  if (typeof doc.embedding === 'string' && doc.embedding.trim().length > 0) return true;
+  return false;
+}
+
+/** Chave normalizada de CPF para deduplicar alunos e faciais entre coleções. */
+function cpfChave(doc) {
+  if (!doc) return '';
+  const bruto = doc.cpf || doc.id || '';
+  return limparCpf(bruto) || limpar(bruto);
+}
+
 /** Lista as viagens com contagens úteis para o painel. */
 function listarViagens(dataStore, { hojeISO = new Date().toISOString().slice(0, 10) } = {}) {
   const viagens = new Map();
@@ -88,7 +106,7 @@ function listarViagens(dataStore, { hojeISO = new Date().toISOString().slice(0, 
         cpfs: new Set(),
         embarcados: 0,
         retornados: 0,
-        faciais_cadastradas: 0,
+        faciais_cpfs: new Set(),
         com_quarto: 0,
         pernoite: false,
         referencia: null // created_at da importação, para deduzir o ano de "DD/MM"
@@ -102,18 +120,21 @@ function listarViagens(dataStore, { hojeISO = new Date().toISOString().slice(0, 
 
   for (const doc of (dataStore.embarques || new Map()).values()) {
     const v = obter(doc.colegio, doc.inicioViagem, doc.fimViagem, doc.created_at);
+    const cpf = cpfChave(doc);
     if (doc.idPasseio) v.passeios.add(doc.idPasseio);
     if (doc.onibus) v.onibus.add(String(doc.onibus));
-    if (doc.cpf) v.cpfs.add(doc.cpf);
+    if (cpf) v.cpfs.add(cpf);
+    if (cpf && temFacialCadastrada(doc)) v.faciais_cpfs.add(cpf);
     if (sim(doc.embarque)) v.embarcados++;
     if (sim(doc.retorno)) v.retornados++;
     if (doc.facial === true) v.pernoite = true;
   }
   for (const doc of (dataStore.alunos || new Map()).values()) {
     const v = obter(doc.colegio, doc.inicio_viagem, doc.fim_viagem);
-    if (doc.cpf) v.cpfs.add(doc.cpf);
+    const cpf = cpfChave(doc);
+    if (cpf) v.cpfs.add(cpf);
     if (doc.facial === true) v.pernoite = true;
-    if (doc.facial_cadastrada === true) v.faciais_cadastradas++;
+    if (cpf && temFacialCadastrada(doc)) v.faciais_cpfs.add(cpf);
   }
   for (const doc of (dataStore.quartos || new Map()).values()) {
     const v = obter(doc.colegio, doc.inicio_viagem, doc.fim_viagem, doc.created_at);
@@ -132,9 +153,9 @@ function listarViagens(dataStore, { hojeISO = new Date().toISOString().slice(0, 
     v.passeios.forEach(p => alvo.passeios.add(p));
     v.onibus.forEach(o => alvo.onibus.add(o));
     v.cpfs.forEach(c => alvo.cpfs.add(c));
+    v.faciais_cpfs.forEach(c => alvo.faciais_cpfs.add(c));
     alvo.embarcados += v.embarcados;
     alvo.retornados += v.retornados;
-    alvo.faciais_cadastradas += v.faciais_cadastradas;
     alvo.com_quarto += v.com_quarto;
     alvo.pernoite = alvo.pernoite || v.pernoite;
     viagens.delete(chave);
@@ -155,22 +176,27 @@ function listarViagens(dataStore, { hojeISO = new Date().toISOString().slice(0, 
   }
 
   return [...viagens.values()]
-    .map(v => ({
-      chave: v.chave,
-      colegio: v.colegio,
-      inicio: v.inicio,
-      fim: v.fim,
-      data_sem_ano: v.data_sem_ano === true,
-      passeios: [...v.passeios].sort(),
-      onibus: [...v.onibus].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })),
-      qtd_alunos: v.cpfs.size,
-      embarcados: v.embarcados,
-      retornados: v.retornados,
-      faciais_cadastradas: v.faciais_cadastradas,
-      com_quarto: v.com_quarto,
-      pernoite: v.pernoite,
-      situacao: situacao(normalizarDataISO(v.inicio), normalizarDataISO(v.fim), hojeISO)
-    }))
+    .map(v => {
+      const faciaisCadastradas = v.faciais_cpfs.size;
+      const faciaisPendentes = Math.max(0, v.cpfs.size - faciaisCadastradas);
+      return {
+        chave: v.chave,
+        colegio: v.colegio,
+        inicio: v.inicio,
+        fim: v.fim,
+        data_sem_ano: v.data_sem_ano === true,
+        passeios: [...v.passeios].sort(),
+        onibus: [...v.onibus].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })),
+        qtd_alunos: v.cpfs.size,
+        embarcados: v.embarcados,
+        retornados: v.retornados,
+        faciais_cadastradas: faciaisCadastradas,
+        faciais_pendentes: faciaisPendentes,
+        com_quarto: v.com_quarto,
+        pernoite: v.pernoite,
+        situacao: situacao(normalizarDataISO(v.inicio), normalizarDataISO(v.fim), hojeISO)
+      };
+    })
     .sort((a, b) => {
       const cmpData = String(b.inicio).localeCompare(String(a.inicio));
       if (cmpData !== 0) return cmpData;
@@ -251,8 +277,6 @@ function planejarExclusao(dataStore, { colegio, inicio }) {
 // O ID do documento é o CPF nas três coleções.
 // ----------------------------------------------------------------------------
 
-const limparCpf = (c) => String(c || '').replace(/\D/g, '');
-
 /** Documentos de UM aluno que pertencem à viagem (por coleção). */
 function docsDoAluno(dataStore, { colegio, inicio, cpf }) {
   const id = limparCpf(cpf);
@@ -288,7 +312,7 @@ function listarAlunosDaViagem(dataStore, { colegio, inicio }) {
       numero_quarto: limpar(q.numero_quarto),
       embarque: limpar(e.embarque),
       retorno: limpar(e.retorno),
-      facial_cadastrada: a.facial_cadastrada === true || e.facial_cadastrada === true,
+      facial_cadastrada: temFacialCadastrada(aluno) || temFacialCadastrada(embarque),
       movimentacao: limpar(a.movimentacao),
       pernoite: a.facial === true || q.facial === true || e.facial === true,
       colecoes: { alunos: !!aluno, quartos: !!quarto, embarques: !!embarque }
@@ -500,5 +524,6 @@ module.exports = {
   aplicarEmLotes,
   docsDaViagem,
   chaveViagem,
-  completarAno
+  completarAno,
+  temFacialCadastrada
 };

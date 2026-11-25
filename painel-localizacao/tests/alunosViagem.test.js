@@ -32,7 +32,25 @@ test('lista alunos da viagem juntando as três coleções', () => {
   assert.strictEqual(ana.numero_quarto, '101');
   assert.strictEqual(ana.onibus, '2');
   assert.strictEqual(ana.embarque, 'SIM');
+  assert.strictEqual(ana.facial_cadastrada, false);
   assert.deepStrictEqual(ana.colecoes, { alunos: true, quartos: true, embarques: true });
+});
+
+test('identifica facial cadastrada do aluno por facial_cadastrada, Facial ou embedding', () => {
+  const s = store({
+    alunos: [
+      { cpf: '1', nome: 'Ana', colegio: 'Colégio A', inicio_viagem: '2026-10-05', facial_cadastrada: true },
+      { cpf: '2', nome: 'Bruno', colegio: 'Colégio A', inicio_viagem: '2026-10-05', embedding: [0.5, 0.4] },
+      { cpf: '3', nome: 'Carla', colegio: 'Colégio A', inicio_viagem: '2026-10-05', facial_cadastrada: false }
+    ],
+    embarques: [
+      { cpf: '3', nome: 'Carla', colegio: 'Colégio A', inicioViagem: '2026-10-05', Facial: 'CADASTRADA' },
+      { cpf: '4', nome: 'Diego', colegio: 'Colégio A', inicioViagem: '2026-10-05', Facial: 'PENDENTE' }
+    ]
+  });
+  const lista = listarAlunosDaViagem(s, { colegio: 'Colégio A', inicio: '2026-10-05' });
+  const porNome = Object.fromEntries(lista.map(a => [a.nome, a.facial_cadastrada]));
+  assert.deepStrictEqual(porNome, { Ana: true, Bruno: true, Carla: true, Diego: false });
 });
 
 test('editar aluno grava cada campo na coleção certa', () => {

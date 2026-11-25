@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gerenciar Viagens - Painel Ellus</title>
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=6">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
@@ -24,6 +24,16 @@
       <div class="kpi" style="border-left-color:#3b82f6"><div class="kpi-val" id="kpiFuturas">0</div><div class="kpi-label">Próximas</div></div>
       <div class="kpi" style="border-left-color:#9ca3af"><div class="kpi-val" id="kpiEncerradas">0</div><div class="kpi-label">Encerradas</div></div>
       <div class="kpi" style="border-left-color:var(--col-fora)"><div class="kpi-val" id="kpiAlunos">0</div><div class="kpi-label">Alunos viajando agora</div></div>
+      <div class="kpi" style="border-left-color:#16a34a">
+        <div class="kpi-val" id="kpiComFacial">0</div>
+        <div class="kpi-label">Com facial</div>
+        <div class="kpi-sub" id="kpiComFacialSub">0% nas viagens exibidas</div>
+      </div>
+      <div class="kpi" style="border-left-color:#dc2626">
+        <div class="kpi-val" id="kpiSemFacial">0</div>
+        <div class="kpi-label">Sem facial</div>
+        <div class="kpi-sub" id="kpiSemFacialSub">0 pendente(s)</div>
+      </div>
     </section>
 
     <section class="filters-bar">
@@ -46,6 +56,15 @@
           <option value="">Todas</option>
           <option value="pernoite">Com pernoite</option>
           <option value="comum">Sem pernoite</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="filtroFacial">Facial</label>
+        <select id="filtroFacial" class="form-select">
+          <option value="">Todas</option>
+          <option value="pendentes">Com sem facial</option>
+          <option value="completas">100% com facial</option>
+          <option value="nenhuma">Nenhuma cadastrada</option>
         </select>
       </div>
       <div class="filter-field">
@@ -147,16 +166,30 @@
 
   <!-- Modal: alunos da viagem -->
   <div id="modalAlunos" class="modal-overlay">
-    <div class="modal-box" style="max-width:1000px; width:95%;">
+    <div class="modal-box" style="max-width:1100px; width:96%;">
       <div class="modal-header"><h3><i class="fas fa-users"></i> <span id="tituloAlunos">Alunos da viagem</span></h3><button class="btn-close" data-fechar>&times;</button></div>
       <div class="modal-body">
-        <div class="form-field" style="display:flex; gap:10px; align-items:center;">
-          <input type="text" id="pesquisaAluno" class="form-input" style="flex:1;" placeholder="Buscar por nome, CPF, turma, ônibus ou quarto" autocomplete="off">
+        <div class="modal-facial-bar">
+          <div class="chips" id="chipsFacialAluno">
+            <button type="button" class="chip active" data-valor="">Todos <span class="count" id="cntAlunosTodos">0</span></button>
+            <button type="button" class="chip" data-valor="com">✅ Com facial <span class="count" id="cntAlunosComFacial">0</span></button>
+            <button type="button" class="chip" data-valor="sem">❌ Sem facial <span class="count" id="cntAlunosSemFacial">0</span></button>
+          </div>
+          <div class="modal-facial-resumo">
+            <span id="resumoFacialModal" class="muted">0% com facial</span>
+            <div class="bar"><span id="barFacialModal" style="width:0%"></span></div>
+          </div>
+        </div>
+        <div class="form-field" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <input type="text" id="pesquisaAluno" class="form-input" style="flex:1; min-width:220px;" placeholder="Buscar por nome, CPF, turma, ônibus ou quarto" autocomplete="off">
+          <button type="button" class="btn btn-outline" id="btnExportarAlunos" title="Baixar lista exibida (CSV)" style="white-space:nowrap;">
+            <i class="fas fa-file-csv"></i> Exportar CSV
+          </button>
           <button type="button" class="btn btn-primary" id="btnAdicionarAluno" style="display:none; white-space:nowrap;">
             <i class="fas fa-user-plus"></i> Adicionar aluno
           </button>
         </div>
-        <div style="max-height:60vh; overflow:auto;">
+        <div style="max-height:56vh; overflow:auto;">
           <table class="data-table">
             <thead>
               <tr>
@@ -165,6 +198,7 @@
                 <th>Ônibus</th>
                 <th>ID passeio</th>
                 <th id="thQuartoAluno">Quarto</th>
+                <th>Facial</th>
                 <th>Embarque / Retorno</th>
                 <th class="acoes">Ações</th>
               </tr>
@@ -250,6 +284,6 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="common.js?v=5"></script>
-  <script src="gerenciar.js?v=7"></script>
+  <script src="gerenciar.js?v=8"></script>
 </body>
 </html>
