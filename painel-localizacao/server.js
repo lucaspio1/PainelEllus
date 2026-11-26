@@ -21,7 +21,7 @@ const { listarViagens, planejarEdicao, planejarExclusao, listarAlunosDaViagem, p
 const { planejarImportacao } = require('./store/importacao');
 const { emitirTokenDispositivo, validarTokenDispositivo, revogarDispositivosDoUsuario } = require('./store/deviceTokens');
 const { getAppConfig, resetAppConfig, carregarAppConfigFirestore, salvarAppConfigFirestore } = require('./store/appConfig');
-const { listarPessoasControleQuartos } = require('./store/pessoas');
+const { listarPessoasControleQuartos, planejarMovimentacaoLote } = require('./store/pessoas');
 
 // [FIREBASE] Inicialização com suporte a múltiplos ambientes
 if (!admin.apps.length) {
@@ -812,11 +812,89 @@ app.post('/api/movimentar', authMiddleware, async (req, res) => {
     addLog({ id: logRef.id, ...logData });
 
     dataStore.lastUpdate.alunos = timestamp;
+    notificarAlteracao('alunos');
 
     res.json({ success: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ success: false });
+  }
+});
+
+// ✅ MOVIMENTAR EM LOTE (Ex.: mandar todos para a balada de uma vez)
+app.post('/api/movimentar-batch', authMiddleware, async (req, res) => {
+  try {
+    const { alunos, novaLocalizacao, operador } = req.body || {};
+    const timestamp = new Date().toISOString();
+    const usuarioResp = operadorDaRequisicao(req, operador);
+
+    const plano = planejarMovimentacaoLote(alunos, novaLocalizacao, {
+      operador: usuarioResp,
+      timestamp,
+      dataStore
+    });
+
+    if (plano.erro) {
+      return res.status(400).json({ success: false, message: plano.erro });
+    }
+
+    if (plano.escritasAlunos.length === 0) {
+      return res.json({
+        success: true,
+        movidos: 0,
+        jaEstavam: plano.jaEstavam,
+        timestamp,
+        message: 'Todos os alunos selecionados já estavam nessa localização.'
+      });
+    }
+
+    console.log(`📍 Movimentando em lote: ${plano.escritasAlunos.length} aluno(s) -> ${novaLocalizacao} (por ${usuarioResp})`);
+
+    // Monta operações de Firestore (atualização de alunos + criação de logs) em lotes de até 450
+    const operacoesFirestore = [];
+    for (const op of plano.escritasAlunos) {
+      if (dataStore.alunos.has(op.cpf) || !dataStore.ready.alunos) {
+        operacoesFirestore.push({ tipo: 'aluno', id: op.id, data: op.data });
+      }
+    }
+    const logsComRef = plano.logs.map(logData => {
+      const ref = db.collection('logs').doc();
+      operacoesFirestore.push({ tipo: 'log', ref, data: logData });
+      return { id: ref.id, ...logData };
+    });
+
+    await aplicarEmLotes(db, operacoesFirestore, (batch, op) => {
+      if (op.tipo === 'aluno') {
+        batch.set(db.collection('alunos').doc(op.id), op.data, { merge: true });
+      } else {
+        batch.set(op.ref, op.data);
+      }
+    });
+
+    // Atualiza cache RAM
+    for (const op of plano.escritasAlunos) {
+      const alunoCache = dataStore.alunos.get(op.cpf);
+      if (alunoCache) {
+        Object.assign(alunoCache, op.data);
+        dataStore.alunos.set(op.cpf, alunoCache);
+      }
+    }
+    for (const logItem of logsComRef) {
+      addLog(logItem);
+    }
+
+    dataStore.lastUpdate.alunos = timestamp;
+    notificarAlteracao('alunos');
+
+    res.json({
+      success: true,
+      movidos: plano.movidos.length,
+      jaEstavam: plano.jaEstavam,
+      timestamp
+    });
+  } catch (e) {
+    console.error('Erro em /api/movimentar-batch:', e);
+    res.status(500).json({ success: false, message: 'Erro ao movimentar alunos em lote.' });
   }
 });
 

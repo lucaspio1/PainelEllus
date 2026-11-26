@@ -67,6 +67,7 @@ async function init() {
 
   el('btnAtualizar').addEventListener('click', () => carregarDados());
   el('btnExportar').addEventListener('click', exportar);
+  if (el('btnTodosBalada')) el('btnTodosBalada').addEventListener('click', mandarTodosParaBalada);
   el('btnToggleView').addEventListener('click', () => {
     filtros.visao = filtros.visao === 'STATUS' ? 'QUARTOS' : 'STATUS';
     aplicarVisao();
@@ -417,6 +418,71 @@ async function moverAluno(cpf, nome, novoStatus) {
     if (alunoSelecionado && Ellus.soDigitos(alunoSelecionado.cpf) === cpfLimpo) abrirModalDetalhes(pessoa);
   } catch (e) {
     Ellus.toast('❌ ' + e.message, 'error');
+  }
+}
+
+async function mandarTodosParaBalada() {
+  const base = filtrarBase();
+  if (base.length === 0) {
+    return Ellus.toast('Nenhum aluno encontrado com os filtros atuais.', 'info');
+  }
+
+  const pendentes = base.filter(p => categoria(p) !== 'balada');
+  if (pendentes.length === 0) {
+    return Ellus.toast('🎉 Todos os alunos listados já estão na Balada!', 'info');
+  }
+
+  const escopo = filtros.colegio
+    ? `do colégio "${filtros.colegio}"`
+    : (filtros.viagem ? 'da viagem selecionada' : 'de todas as viagens em andamento');
+  const msg = `Confirma mandar ${pendentes.length} aluno(s) ${escopo} para a Balada 🎉?` +
+    (base.length > pendentes.length ? `\n(${base.length - pendentes.length} já estão na Balada)` : '');
+
+  if (!window.confirm(msg)) return;
+
+  const btn = el('btnTodosBalada');
+  try {
+    if (btn) btn.disabled = true;
+    mostrarLoading();
+
+    const payload = pendentes.map(p => ({
+      cpf: Ellus.soDigitos(p.cpf),
+      nome: p.nome || '',
+      quarto: p.quarto || '',
+      colegio: p.colegio || '',
+      turma: p.turma || ''
+    }));
+
+    const res = await authFetch('/api/movimentar-batch', {
+      method: 'POST',
+      body: JSON.stringify({
+        alunos: payload,
+        novaLocalizacao: STATUS.BALADA,
+        operador: operadorAtual
+      })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message || 'Erro ao movimentar alunos em lote');
+
+    const agora = data.timestamp || new Date().toISOString();
+    const cpfsMovidos = new Set(payload.map(a => a.cpf));
+    todasPessoas.forEach(p => {
+      if (cpfsMovidos.has(Ellus.soDigitos(p.cpf))) {
+        Object.assign(p, {
+          movimentacao: STATUS.BALADA,
+          movimentacao_at: agora,
+          ultimo_usuario: operadorAtual
+        });
+      }
+    });
+
+    Ellus.toast(`🎉 ${data.movidos} aluno(s) enviado(s) para a Balada!`, 'success');
+    renderizarPainel();
+  } catch (e) {
+    Ellus.toast('❌ ' + e.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+    esconderLoading();
   }
 }
 

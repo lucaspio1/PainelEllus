@@ -79,4 +79,66 @@ function listarPessoasControleQuartos({ quartos = [], alunos = [], usuarios = []
     });
 }
 
-module.exports = { listarPessoasControleQuartos, obterCpfsMonitores, cpfSomenteDigitos };
+/**
+ * Planeja a movimentação em lote de uma lista de alunos (ex.: mandar todos para a balada).
+ * Ignora alunos que já estão na mesma localização para evitar escritas e logs redundantes.
+ *
+ * @param {Array<{ cpf: string, nome?: string, nome_hospede?: string, quarto?: string, numero_quarto?: string, colegio?: string, turma?: string }>} alunos
+ * @param {string} novaLocalizacao
+ * @param {{ operador: string, timestamp?: string, dataStore?: Object }} ctx
+ * @returns {{ erro?: string, escritasAlunos: Array<{ id: string, data: Object }>, logs: Array<Object>, movidos: Array<string>, jaEstavam: number }}
+ */
+function planejarMovimentacaoLote(alunos, novaLocalizacao, { operador = 'Sistema', timestamp = new Date().toISOString(), dataStore } = {}) {
+  const destino = String(novaLocalizacao || '').trim();
+  if (!destino) return { erro: 'Nova localização é obrigatória.' };
+  if (!Array.isArray(alunos) || alunos.length === 0) return { erro: 'Nenhum aluno informado para movimentação.' };
+
+  const escritasAlunos = [];
+  const logs = [];
+  const movidos = [];
+  let jaEstavam = 0;
+  const vistos = new Set();
+
+  for (const item of alunos) {
+    if (!item) continue;
+    const cpfLimpo = cpfSomenteDigitos(item.cpf);
+    if (!cpfLimpo || vistos.has(cpfLimpo)) continue;
+    vistos.add(cpfLimpo);
+
+    const alunoCache = dataStore && dataStore.alunos instanceof Map ? dataStore.alunos.get(cpfLimpo) : null;
+    if (alunoCache && String(alunoCache.movimentacao || '').trim().toUpperCase() === destino.toUpperCase()) {
+      jaEstavam++;
+      continue;
+    }
+
+    const docId = (alunoCache && alunoCache.id) || cpfLimpo;
+    const nomeAluno = item.nome_hospede || item.nome || (alunoCache && alunoCache.nome) || 'Aluno';
+    const numeroQuarto = item.numero_quarto !== undefined ? item.numero_quarto : (item.quarto || '');
+
+    const updateAluno = {
+      movimentacao: destino,
+      movimentacao_at: timestamp,
+      updated_at: timestamp,
+      ultimo_usuario: operador
+    };
+
+    escritasAlunos.push({ id: docId, cpf: cpfLimpo, data: updateAluno });
+    logs.push({
+      cpf: cpfLimpo,
+      nome: nomeAluno,
+      nome_hospede: nomeAluno,
+      tipo: destino,
+      movimentacao: destino,
+      usuario: operador,
+      operador,
+      timestamp,
+      quarto: numeroQuarto,
+      numero_quarto: numeroQuarto
+    });
+    movidos.push(cpfLimpo);
+  }
+
+  return { escritasAlunos, logs, movidos, jaEstavam, timestamp };
+}
+
+module.exports = { listarPessoasControleQuartos, obterCpfsMonitores, cpfSomenteDigitos, planejarMovimentacaoLote };

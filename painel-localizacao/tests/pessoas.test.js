@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { listarPessoasControleQuartos } = require('../store/pessoas');
+const { listarPessoasControleQuartos, planejarMovimentacaoLote } = require('../store/pessoas');
 
 test('exclui da lista do Controle de Quartos qualquer CPF que pertença a um monitor', () => {
   const quartos = [
@@ -48,4 +48,37 @@ test('mantém todos os alunos com facial === true quando não há monitores corr
   assert.equal(pessoas.length, 1);
   assert.equal(pessoas[0].cpf, '10432554947');
   assert.equal(pessoas[0].movimentacao, 'QUARTO');
+});
+
+test('planejarMovimentacaoLote move alunos para FOI_PARA_BALADA e ignora quem já está lá ou CPFs duplicados', () => {
+  const dataStore = {
+    alunos: new Map([
+      ['11111111111', { id: '11111111111', cpf: '11111111111', nome: 'Aluno 1', movimentacao: 'VOLTOU_AO_QUARTO' }],
+      ['22222222222', { id: '22222222222', cpf: '22222222222', nome: 'Aluno 2', movimentacao: 'FOI_PARA_BALADA' }],
+      ['33333333333', { id: '33333333333', cpf: '33333333333', nome: 'Aluno 3', movimentacao: 'SAIU_DO_QUARTO' }]
+    ])
+  };
+
+  const ts = '2026-11-25T23:00:00.000Z';
+  const plano = planejarMovimentacaoLote([
+    { cpf: '111.111.111-11', nome: 'Aluno 1', quarto: '101' },
+    { cpf: '11111111111', nome: 'Aluno 1 duplicado', quarto: '101' },
+    { cpf: '22222222222', nome: 'Aluno 2', quarto: '102' },
+    { cpf: '33333333333', nome: 'Aluno 3', quarto: '103' }
+  ], 'FOI_PARA_BALADA', { operador: 'Coordenador', timestamp: ts, dataStore });
+
+  assert.equal(plano.erro, undefined);
+  assert.equal(plano.jaEstavam, 1);
+  assert.deepEqual(plano.movidos, ['11111111111', '33333333333']);
+  assert.equal(plano.escritasAlunos.length, 2);
+  assert.equal(plano.logs.length, 2);
+  assert.deepEqual(plano.escritasAlunos[0].data, {
+    movimentacao: 'FOI_PARA_BALADA',
+    movimentacao_at: ts,
+    updated_at: ts,
+    ultimo_usuario: 'Coordenador'
+  });
+  assert.equal(plano.logs[0].quarto, '101');
+  assert.equal(plano.logs[0].tipo, 'FOI_PARA_BALADA');
+  assert.equal(plano.logs[0].operador, 'Coordenador');
 });
